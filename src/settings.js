@@ -1,0 +1,43 @@
+const GAME_SETTINGS_STORAGE_KEY = 'highwayRush.settings';
+
+export const DEFAULT_GAME_SETTINGS = {
+    performanceMode: false,
+    cameraShake: true,
+    speedEffects: true
+};
+
+function sanitizeBoolean(value, fallback) {
+    return typeof value === 'boolean' ? value : fallback;
+}
+
+export function loadGameSettings() {
+    try {
+        const stored = window.localStorage.getItem(GAME_SETTINGS_STORAGE_KEY);
+        if (!stored) return { ...DEFAULT_GAME_SETTINGS };
+
+        const parsed = JSON.parse(stored);
+        if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_GAME_SETTINGS };
+
+        return {
+            performanceMode: sanitizeBoolean(parsed.performanceMode, DEFAULT_GAME_SETTINGS.performanceMode),
+            cameraShake: sanitizeBoolean(parsed.cameraShake, DEFAULT_GAME_SETTINGS.cameraShake),
+            speedEffects: sanitizeBoolean(parsed.speedEffects, DEFAULT_GAME_SETTINGS.speedEffects)
+        };
+    } catch (error) {
+        return { ...DEFAULT_GAME_SETTINGS };
+    }
+}
+
+export function saveGameSettings(settings) {
+    try {
+        window.localStorage.setItem(
+            GAME_SETTINGS_STORAGE_KEY,
+            JSON.stringify({
+                ...DEFAULT_GAME_SETTINGS,
+                ...settings
+            })
+        );
+    } catch (error) {
+        // Les réglages sont confortables mais non essentiels : le jeu reste jouable sans sauvegarde.
+    }
+}

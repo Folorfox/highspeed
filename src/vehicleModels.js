@@ -62,6 +62,10 @@ function logDebugMaterials(root, path) {
 // Ajoutés dans cette passe (véhicules de route réellement nouveaux, non
 // inventés) : van.glb, truck.glb, truck-flat.glb.
 //
+// sedan-sports.glb et suv-luxury.glb ont été déplacés côté joueur
+// (public/models/player-cars/) : ils ne sont donc plus listés ici pour le
+// trafic ennemi.
+//
 // Volontairement TOUJOURS exclus, et pourquoi :
 // - debris-*.glb : pack d'effets de destruction/collision, pas des voitures.
 // - kart-oobi/oodi/ooli/oopi/oozi.glb : silhouette de kart, pas une voiture
@@ -83,9 +87,7 @@ export const TRAFFIC_MODEL_PATHS = [
     '/models/cars/hatchback-sports.glb',
     '/models/cars/police.glb',
     '/models/cars/sedan.glb',
-    '/models/cars/sedan-sports.glb',
     '/models/cars/suv.glb',
-    '/models/cars/suv-luxury.glb',
     '/models/cars/truck.glb',
     '/models/cars/truck-flat.glb',
     '/models/cars/van.glb'
@@ -116,9 +118,7 @@ const MODEL_YAW_CORRECTIONS = {
     '/models/cars/hatchback-sports.glb': Math.PI,
     '/models/cars/police.glb': Math.PI,
     '/models/cars/sedan.glb': Math.PI,
-    '/models/cars/sedan-sports.glb': Math.PI,
     '/models/cars/suv.glb': Math.PI,
-    '/models/cars/suv-luxury.glb': Math.PI,
     '/models/cars/truck.glb': Math.PI,
     '/models/cars/truck-flat.glb': Math.PI,
     '/models/cars/van.glb': Math.PI

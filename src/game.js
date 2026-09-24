@@ -21,8 +21,19 @@ import { EffectsManager } from './effects.js';
 import { audio } from './audio.js';
 import { PLAYER_VEHICLES } from './playerVehicleModel.js';
 import { ObjectiveManager } from './objectives.js';
+import {
+    applyGameModeToDifficultySnapshot,
+    DEFAULT_GAME_MODE_ID,
+    GAME_MODES,
+    getGameModeConfig
+} from './gameModes.js';
+import { loadGameSettings, saveGameSettings } from './settings.js';
 
 const SKY_COLOR = 0x9ecfe8;
+
+const MAX_RENDER_PIXEL_RATIO = 1.5;
+const SUN_SHADOW_MAP_SIZE = 1024;
+const ATMOSPHERE_UPDATE_INTERVAL = 1 / 20;
 
 const CAMERA_OFFSET_Y = 4;
 const CAMERA_OFFSET_Z = 8;
@@ -64,6 +75,8 @@ const COUNTDOWN_NUMBER_COUNT = 3;
 const COUNTDOWN_STEP_DURATION = 0.75;
 const COUNTDOWN_GO_DURATION = 0.45;
 const COUNTDOWN_TOTAL_DURATION = COUNTDOWN_NUMBER_COUNT * COUNTDOWN_STEP_DURATION + COUNTDOWN_GO_DURATION;
+const METERS_PER_KMH_SECOND = 1000 / 3600;
+const ARCADE_DISTANCE_SCALE = 6;
 
 // --- Soleil / ombres ------------------------------------------------------
 // Le soleil suit la voiture chaque frame (position + target), avec un
@@ -306,7 +319,17 @@ function formatDuration(seconds) {
     return `${minutes}:${remainingSeconds}`;
 }
 
+function formatDistanceKm(distanceMeters) {
+    const kilometers = Math.max(0, distanceMeters) / 1000;
+    return `${kilometers.toLocaleString('fr-FR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    })} KM`;
+}
+
 export function startGame() {
+    let gameSettings = loadGameSettings();
+
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(SKY_COLOR);
 
@@ -319,12 +342,33 @@ export function startGame() {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    function getRenderPixelRatio() {
+        return Math.min(window.devicePixelRatio, gameSettings.performanceMode ? 1 : MAX_RENDER_PIXEL_RATIO);
+    }
+
+    function applyRenderSettings() {
+        renderer.setPixelRatio(getRenderPixelRatio());
+        renderer.shadowMap.enabled = !gameSettings.performanceMode;
+    }
+
+    function shouldPlayVisualEffects() {
+        return !gameSettings.performanceMode;
+    }
+
+    function shouldUseCameraShake() {
+        return gameSettings.cameraShake;
+    }
+
+    function shouldUseSpeedEffects() {
+        return gameSettings.speedEffects && !gameSettings.performanceMode;
+    }
+
+    applyRenderSettings();
 
     // Ombres portées douces. Le coût reste maîtrisé car seul un petit
     // frustum autour de la voiture (voir SUN_SHADOW_HALF_SIZE) est rendu
     // dans la shadow map, quelle que soit la longueur du tracé.
-    renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
 
     // --- Color management explicite -----------------------------------
@@ -365,7 +409,7 @@ export function startGame() {
 
     const sun = new THREE.DirectionalLight(0xff9a5a, 1.25);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(SUN_SHADOW_MAP_SIZE, SUN_SHADOW_MAP_SIZE);
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 90;
     sun.shadow.camera.left = -SUN_SHADOW_HALF_SIZE;
@@ -432,8 +476,13 @@ export function startGame() {
     updateSunFollow();
 
     const difficulty = new DifficultyManager();
+    const initialGameMode = getGameModeConfig(DEFAULT_GAME_MODE_ID);
 
-    const traffic = new TrafficManager(scene, car, difficulty.getSnapshot().activeCarCount);
+    const traffic = new TrafficManager(
+        scene,
+        car,
+        applyGameModeToDifficultySnapshot(difficulty.getSnapshot(), initialGameMode).activeCarCount
+    );
 
     const environment = new EnvironmentManager(scene);
     environment.reset(car);
@@ -467,20 +516,18 @@ export function startGame() {
     let previousComboMultiplier = 0;
     let brakeEffectCooldown = 0;
     let dayNightTime = DAY_NIGHT_START_TIME;
+    let atmosphereUpdateAccumulator = ATMOSPHERE_UPDATE_INTERVAL;
     let maxRunSpeed = 0;
+    let runDistanceMeters = 0;
     let countdownTimeRemaining = 0;
+    let currentGameMode = initialGameMode;
+    let modeTimeRemaining = currentGameMode.timeLimit ?? null;
     const atmosphereState = createAtmosphereState();
 
     const scoreManager = new ScoreManager();
     const objectiveManager = new ObjectiveManager();
     const scoreHud = new ScoreHud();
-    scoreHud.update(
-        scoreManager.getScore(),
-        scoreManager.getBestScore(),
-        scoreManager.getComboMultiplier(),
-        scoreManager.getComboProgress(),
-        scoreManager.getComboTimeRemaining()
-    );
+    updatePrimaryHud();
     scoreHud.updateLevel(difficulty.getLevel());
 
     const speedEffectOverlay = new SpeedEffectOverlay();
@@ -489,7 +536,10 @@ export function startGame() {
 
     let startScreen = null;
     const gameOverScreen = new GameOverScreen(() => showVehicleSelection());
-    const pauseScreen = new PauseScreen(() => resumeGame());
+    const pauseScreen = new PauseScreen(
+        () => resumeGame(),
+        () => quitRunToMenu()
+    );
     audioToggleButton = new AudioToggleButton({
         muted: audio.isMuted(),
         onToggle: (muted) => {
@@ -503,9 +553,43 @@ export function startGame() {
     });
     startScreen = new StartScreen({
         vehicles: PLAYER_VEHICLES,
+        modes: GAME_MODES,
         getVehicleBestScore: (vehicleId) => scoreManager.getVehicleBestScore(vehicleId),
+        getModeBestScore: (modeId, metric) => scoreManager.getModeBestResult(modeId, metric),
+        getCareerStats: () => scoreManager.getCareerStats(),
+        getCareerMilestones: () => scoreManager.getCareerMilestones(),
+        getVehicleUnlockInfo: (vehicle) => scoreManager.getVehicleUnlockInfo(vehicle),
+        settings: gameSettings,
+        onSettingsChange: (nextSettings) => {
+            gameSettings = nextSettings;
+            saveGameSettings(gameSettings);
+            applyRenderSettings();
+
+            if (!shouldUseSpeedEffects()) {
+                speedEffectOverlay.update(0);
+            }
+            if (!shouldPlayVisualEffects()) {
+                effects.reset();
+            }
+            if (!shouldUseCameraShake()) {
+                shakeTimeRemaining = 0;
+                minorShakeTimeRemaining = 0;
+                minorShakeMagnitude = 0;
+            }
+        },
         onSelectVehicle: (vehicleId) => car.setVehicle(vehicleId),
-        onStart: (vehicleId) => startRun(vehicleId)
+        onSelectMode: (modeId) => {
+            currentGameMode = getGameModeConfig(modeId);
+            if (!isGameStarted) {
+                modeTimeRemaining = currentGameMode.timeLimit ?? null;
+            }
+            scoreHud.updateModeStatus({
+                label: 'MODE',
+                value: currentGameMode.name,
+                progress: 1
+            });
+        },
+        onStart: (vehicleId, modeId) => startRun(vehicleId, modeId)
     });
 
     function pauseGame() {
@@ -527,12 +611,113 @@ export function startGame() {
         audio.startEngine();
     }
 
+    function quitRunToMenu() {
+        if (!isGameStarted || isGameOver) return;
+
+        isGameStarted = false;
+        isPaused = false;
+        controls.clear();
+        audio.stopEngine();
+        speedEffectOverlay.update(0);
+        countdownOverlay.hide();
+        scoreHud.updateDanger(null);
+        scoreHud.updateObjective(null);
+        resetGame();
+        startScreen.show('home');
+    }
+
     function togglePause() {
         if (isPaused) {
             resumeGame();
         } else {
             pauseGame();
         }
+    }
+
+    function getCurrentDifficultySnapshot() {
+        return applyGameModeToDifficultySnapshot(difficulty.getSnapshot(), currentGameMode);
+    }
+
+    function updateModeHud() {
+        if (currentGameMode.timeLimit) {
+            const progress = modeTimeRemaining / (currentGameMode.timeBonusCap ?? currentGameMode.timeLimit);
+            scoreHud.updateModeStatus({
+                label: 'CHRONO',
+                value: formatDuration(modeTimeRemaining),
+                progress
+            });
+            return;
+        }
+
+        scoreHud.updateModeStatus({
+            label: 'MODE',
+            value: currentGameMode.name,
+            progress: 1
+        });
+    }
+
+    function isDistanceResultMode() {
+        return currentGameMode.resultMetric === 'distance';
+    }
+
+    function getPrimaryResultDisplay() {
+        if (isDistanceResultMode()) {
+            return {
+                value: runDistanceMeters,
+                bestValue: scoreManager.getModeBestResult(currentGameMode.id, 'distance'),
+                scoreLabel: 'DISTANCE',
+                bestLabel: 'REC DISTANCE',
+                formatValue: formatDistanceKm
+            };
+        }
+
+        return {
+            value: scoreManager.getScore(),
+            bestValue: scoreManager.getBestScore(),
+            scoreLabel: 'SCORE',
+            bestLabel: 'MEILLEUR',
+            formatValue: (value) => Math.floor(value).toLocaleString('fr-FR')
+        };
+    }
+
+    function updatePrimaryHud() {
+        const primaryDisplay = getPrimaryResultDisplay();
+        scoreHud.update(
+            primaryDisplay.value,
+            primaryDisplay.bestValue,
+            scoreManager.getComboMultiplier(),
+            scoreManager.getComboProgress(),
+            scoreManager.getComboTimeRemaining(),
+            primaryDisplay
+        );
+    }
+
+    function updateSpeedHud() {
+        scoreHud.updateSpeed(
+            car.speed,
+            isDistanceResultMode() ? car.getSpeedRatio() : getDistanceScoreFactor(car.getSpeedRatio()),
+            isDistanceResultMode() ? 'DISTANCE' : 'SCORE'
+        );
+    }
+
+    function getSpeedMetersPerSecond(speed) {
+        return speed * SPEED_DISPLAY_KMH_PER_GAME_UNIT * METERS_PER_KMH_SECOND * ARCADE_DISTANCE_SCALE;
+    }
+
+    function addModeTimeBonus(seconds) {
+        if (!currentGameMode.timeLimit || seconds <= 0) return 0;
+
+        const timeCap = currentGameMode.timeBonusCap ?? currentGameMode.timeLimit;
+        const previousTime = modeTimeRemaining;
+        modeTimeRemaining = Math.min(timeCap, modeTimeRemaining + seconds);
+        const actualBonus = modeTimeRemaining - previousTime;
+
+        if (actualBonus > 0) {
+            scoreHud.showEventBonus('time-bonus', actualBonus);
+            updateModeHud();
+        }
+
+        return actualBonus;
     }
 
     function applyDayNightAtmosphere() {
@@ -576,63 +761,125 @@ export function startGame() {
     updateSunFollow();
     updateVisibilityLights();
 
-    function triggerGameOver(collidedCar = null) {
+    function triggerGameOver(collidedCar = null, {
+        title = 'GAME OVER',
+        playCrashEffects = true
+    } = {}) {
         isPaused = false;
         pauseScreen.hide();
         isGameOver = true;
-        shakeTimeRemaining = IMPACT_SHAKE_DURATION;
+        shakeTimeRemaining = playCrashEffects && shouldUseCameraShake() ? IMPACT_SHAKE_DURATION : 0;
         countdownTimeRemaining = 0;
 
         audio.stopEngine();
         countdownOverlay.hide();
         scoreHud.updateDanger(null);
         scoreHud.updateObjective(null);
+        updateModeHud();
         scoreManager.resetCombo();
-        scoreManager.finalizeGame(car.vehicle.id);
-        gameOverScreen.show(scoreManager.getScore(), scoreManager.getBestScore(), [
+        const previouslyUnlockedVehicleIds = new Set(
+            PLAYER_VEHICLES
+                .filter((vehicle) => scoreManager.getVehicleUnlockInfo(vehicle).unlocked)
+                .map((vehicle) => vehicle.id)
+        );
+        const distanceResultMode = isDistanceResultMode();
+        const careerResult = scoreManager.finalizeGame(car.vehicle.id, currentGameMode.id, {
+            survivalTime: difficulty.getSurvivalTime(),
+            maxSpeedKmh: Math.round(maxRunSpeed * SPEED_DISPLAY_KMH_PER_GAME_UNIT),
+            modeResultMetric: currentGameMode.resultMetric,
+            modeResultValue: distanceResultMode ? runDistanceMeters : scoreManager.getScore(),
+            scoreRecordsEnabled: !distanceResultMode
+        });
+        const newlyCompletedMilestones = careerResult.newlyCompletedMilestones ?? [];
+        const newlyUnlockedVehicles = PLAYER_VEHICLES.filter((vehicle) =>
+            scoreManager.getVehicleUnlockInfo(vehicle).unlocked && !previouslyUnlockedVehicleIds.has(vehicle.id)
+        );
+        const summaryItems = [
+            { label: 'MODE', value: currentGameMode.name },
+            ...(distanceResultMode ? [{ label: 'DISTANCE', value: formatDistanceKm(runDistanceMeters) }] : []),
             { label: 'TEMPS', value: formatDuration(difficulty.getSurvivalTime()) },
             {
                 label: 'VITESSE MAX',
                 value: `${Math.round(maxRunSpeed * SPEED_DISPLAY_KMH_PER_GAME_UNIT)} KM/H`
             },
-            { label: 'REC VÉHICULE', value: scoreManager.getVehicleBestScore(car.vehicle.id) },
+            ...(distanceResultMode
+                ? [{ label: 'REC DISTANCE', value: formatDistanceKm(scoreManager.getModeBestResult(currentGameMode.id, 'distance')) }]
+                : [
+                    { label: 'BONUS SCORE', value: `x${currentGameMode.scoreMultiplier.toFixed(2)}` },
+                    { label: 'REC MODE', value: scoreManager.getModeBestScore(currentGameMode.id) },
+                    { label: 'REC VÉHICULE', value: scoreManager.getVehicleBestScore(car.vehicle.id) }
+                ]),
             { label: 'DÉPASSEMENTS', value: scoreManager.getOvertakeCount() },
             { label: 'NEAR MISS', value: scoreManager.getNearMissCount() },
             { label: 'COMBO MAX', value: `x${scoreManager.getMaxComboMultiplier()}` },
             { label: 'OBJECTIFS', value: scoreManager.getObjectiveCount() }
-        ]);
+        ];
 
-        effects.playCollisionEffect(car.group.position.clone());
-        audio.play('collision');
-        audio.playProcedural('collision', {
-            pan: collidedCar
-                ? THREE.MathUtils.clamp((collidedCar.group.position.x - car.group.position.x) / 5, -0.8, 0.8)
-                : 0,
-            intensity: 1 + car.getSpeedRatio() * 0.25
-        });
+        if (newlyCompletedMilestones.length > 0) {
+            summaryItems.unshift({
+                label: newlyCompletedMilestones.length > 1 ? 'DÉFIS RÉUSSIS' : 'DÉFI RÉUSSI',
+                value: newlyCompletedMilestones.length > 1
+                    ? `${newlyCompletedMilestones.length} nouveaux`
+                    : newlyCompletedMilestones[0].label,
+                highlight: true
+            });
+        }
 
-        car.group.rotation.z += (Math.random() - 0.5) * 0.5;
-        car.group.rotation.x = Math.random() * 0.18;
+        if (newlyUnlockedVehicles.length > 0) {
+            summaryItems.unshift({
+                label: newlyUnlockedVehicles.length > 1 ? 'VOITURES DÉBLOQUÉES' : 'VOITURE DÉBLOQUÉE',
+                value: newlyUnlockedVehicles.map((vehicle) => vehicle.name).join(', '),
+                highlight: true
+            });
+        }
+
+        const primaryDisplay = getPrimaryResultDisplay();
+        gameOverScreen.showWithTitle(
+            title,
+            primaryDisplay.value,
+            primaryDisplay.bestValue,
+            summaryItems,
+            {
+                scoreLabel: primaryDisplay.scoreLabel,
+                scoreText: primaryDisplay.formatValue(primaryDisplay.value),
+                bestLabel: primaryDisplay.bestLabel,
+                bestText: primaryDisplay.formatValue(primaryDisplay.bestValue)
+            }
+        );
+
+        if (playCrashEffects) {
+            if (shouldPlayVisualEffects()) {
+                effects.playCollisionEffect(car.group.position);
+            }
+            audio.play('collision');
+            audio.playProcedural('collision', {
+                pan: collidedCar
+                    ? THREE.MathUtils.clamp((collidedCar.group.position.x - car.group.position.x) / 5, -0.8, 0.8)
+                    : 0,
+                intensity: 1 + car.getSpeedRatio() * 0.25
+            });
+
+            car.group.rotation.z += (Math.random() - 0.5) * 0.5;
+            car.group.rotation.x = Math.random() * 0.18;
+        }
     }
 
     function resetGame() {
         car.reset();
         difficulty.reset();
-        traffic.reset(car, difficulty.getSnapshot().activeCarCount);
+        modeTimeRemaining = currentGameMode.timeLimit ?? null;
+        traffic.reset(car, getCurrentDifficultySnapshot().activeCarCount);
         environment.reset(car);
         controls.consumeLaneShift();
 
+        runDistanceMeters = 0;
         scoreManager.reset();
-        objectiveManager.reset();
-        scoreHud.update(
-            scoreManager.getScore(),
-            scoreManager.getBestScore(),
-            scoreManager.getComboMultiplier(),
-            scoreManager.getComboProgress(),
-            scoreManager.getComboTimeRemaining()
-        );
+        scoreManager.setScoreMultiplier(currentGameMode.scoreMultiplier);
+        objectiveManager.reset(currentGameMode.id);
+        updatePrimaryHud();
         scoreHud.updateLevel(difficulty.getLevel());
-        scoreHud.updateSpeed(car.speed, getDistanceScoreFactor(car.getSpeedRatio()));
+        updateModeHud();
+        updateSpeedHud();
         scoreHud.updateDanger(null);
         scoreHud.updateObjective(null);
         previousDifficultyLevel = difficulty.getLevel();
@@ -644,6 +891,7 @@ export function startGame() {
         cameraRoll = 0;
         brakeEffectCooldown = 0;
         dayNightTime = DAY_NIGHT_START_TIME;
+        atmosphereUpdateAccumulator = ATMOSPHERE_UPDATE_INTERVAL;
         maxRunSpeed = 0;
         countdownTimeRemaining = 0;
         isPaused = false;
@@ -685,20 +933,22 @@ export function startGame() {
         }
     }
 
-    function startRun(vehicleId = car.vehicle.id) {
+    function startRun(vehicleId = car.vehicle.id, modeId = currentGameMode.id) {
         car.setVehicle(vehicleId);
+        currentGameMode = getGameModeConfig(modeId);
         resetGame();
         isGameStarted = true;
         scoreHud.updateObjective(objectiveManager.getCurrentObjective());
+        updateModeHud();
         audio.startEngine();
         startCountdown();
     }
 
-    function showVehicleSelection() {
+    function showVehicleSelection(panel = 'garage') {
         isGameStarted = false;
         audio.stopEngine();
         resetGame();
-        startScreen.show();
+        startScreen.show(panel);
     }
 
     const timer = new THREE.Timer();
@@ -725,136 +975,174 @@ export function startGame() {
             } else {
                 countdownOverlay.hide();
 
-                dayNightTime += delta;
-                applyDayNightAtmosphere();
-
-                difficulty.update(delta);
-                const difficultySnapshot = difficulty.getSnapshot();
-                car.setMaxSpeedBonus(difficultySnapshot.playerMaxSpeedBonus);
-
-                car.update(delta, controls);
-                maxRunSpeed = Math.max(maxRunSpeed, car.speed);
-
-                environment.update(delta, car);
-
-                brakeEffectCooldown = Math.max(0, brakeEffectCooldown - delta);
-                if (controls.isBraking() && car.speed > BRAKE_EFFECT_MIN_SPEED && brakeEffectCooldown <= 0) {
-                    effects.playBrakeEffect(car.group.position.clone());
-                    effects.playTireMarkEffect(car.group.position.clone(), {
-                        intensity: THREE.MathUtils.clamp(car.getSpeedRatio(), 0.35, 1)
-                    });
-                    brakeEffectCooldown = BRAKE_EFFECT_COOLDOWN;
-                }
-
-                if (car.justChangedLane) {
-                    cameraRoll = car.laneChangeDirection * CAMERA_LANE_ROLL_ANGLE;
-                    if (car.speed > BRAKE_EFFECT_MIN_SPEED) {
-                        effects.playTireMarkEffect(car.group.position.clone(), {
-                            intensity: THREE.MathUtils.clamp(car.getSpeedRatio() * 0.72, 0.25, 0.75),
-                            lateralDirection: car.laneChangeDirection,
-                            isLaneChange: true
+                if (currentGameMode.timeLimit) {
+                    modeTimeRemaining = Math.max(0, modeTimeRemaining - delta);
+                    updateModeHud();
+                    if (modeTimeRemaining <= 0) {
+                        triggerGameOver(null, {
+                            title: 'TEMPS ÉCOULÉ',
+                            playCrashEffects: false
                         });
                     }
-                    audio.playProcedural('laneChange', {
-                        speedRatio: car.getSpeedRatio(),
-                        pan: car.laneChangeDirection * 0.35
-                    });
                 }
 
-                const { overtakeCount, nearMissCars } = traffic.update(delta, car, difficultySnapshot);
-                scoreHud.updateDanger(
-                    traffic.getClosestHazardAhead(car, DANGER_WARNING_DISTANCE, DANGER_WARNING_MIN_CLOSING_SPEED)
-                );
-
-                scoreManager.addDistanceScore(car.speed, car.getSpeedRatio(), delta);
-                scoreManager.updateCombo(delta);
-
-                const overtakeEvents = scoreManager.registerOvertakes(overtakeCount);
-                if (overtakeEvents.length > 0) {
-                    const totalOvertakeAmount = overtakeEvents.reduce((sum, event) => sum + event.amount, 0);
-                    scoreHud.showEventBonus('overtake', totalOvertakeAmount);
-                    effects.playOvertakeEffect();
-                    audio.play('overtake', 0.45);
-                    audio.playProcedural('overtake', {
-                        speedRatio: car.getSpeedRatio(),
-                        intensity: Math.min(1.25, 0.85 + overtakeEvents.length * 0.12)
-                    });
-                }
-
-                if (nearMissCars.length > 0) {
-                    let totalNearMissAmount = 0;
-                    let nearMissPan = 0;
-                    for (const nearMissCar of nearMissCars) {
-                        const { amount } = scoreManager.registerNearMiss();
-                        totalNearMissAmount += amount;
-                        nearMissPan += THREE.MathUtils.clamp(
-                            (nearMissCar.group.position.x - car.group.position.x) / 6,
-                            -0.85,
-                            0.85
-                        );
-                        effects.playNearMissEffect(nearMissCar.group.position.clone());
+                if (!isGameOver) {
+                    dayNightTime += delta;
+                    atmosphereUpdateAccumulator += delta;
+                    if (atmosphereUpdateAccumulator >= ATMOSPHERE_UPDATE_INTERVAL) {
+                        applyDayNightAtmosphere();
+                        atmosphereUpdateAccumulator = 0;
                     }
-                    scoreHud.showEventBonus('near-miss', totalNearMissAmount);
-                    audio.play('nearMiss', 0.55);
-                    audio.playProcedural('nearMiss', {
-                        speedRatio: car.getSpeedRatio(),
-                        pan: nearMissPan / nearMissCars.length,
-                        intensity: Math.min(1.35, 0.9 + nearMissCars.length * 0.15)
+
+                    difficulty.update(delta);
+                    const difficultySnapshot = getCurrentDifficultySnapshot();
+                    car.setMaxSpeedBonus(difficultySnapshot.playerMaxSpeedBonus);
+
+                    car.update(delta, controls);
+                    maxRunSpeed = Math.max(maxRunSpeed, car.speed);
+                    runDistanceMeters += getSpeedMetersPerSecond(car.speed) * delta;
+
+                    environment.update(delta, car);
+
+                    brakeEffectCooldown = Math.max(0, brakeEffectCooldown - delta);
+                    if (controls.isBraking() && car.speed > BRAKE_EFFECT_MIN_SPEED && brakeEffectCooldown <= 0) {
+                        if (shouldPlayVisualEffects()) {
+                            effects.playBrakeEffect(car.group.position);
+                            effects.playTireMarkEffect(car.group.position, {
+                                intensity: THREE.MathUtils.clamp(car.getSpeedRatio(), 0.35, 1)
+                            });
+                        }
+                        brakeEffectCooldown = BRAKE_EFFECT_COOLDOWN;
+                    }
+
+                    if (car.justChangedLane) {
+                        cameraRoll = car.laneChangeDirection * CAMERA_LANE_ROLL_ANGLE;
+                        if (shouldPlayVisualEffects() && car.speed > BRAKE_EFFECT_MIN_SPEED) {
+                            effects.playTireMarkEffect(car.group.position, {
+                                intensity: THREE.MathUtils.clamp(car.getSpeedRatio() * 0.72, 0.25, 0.75),
+                                lateralDirection: car.laneChangeDirection,
+                                isLaneChange: true
+                            });
+                        }
+                        audio.playProcedural('laneChange', {
+                            speedRatio: car.getSpeedRatio(),
+                            pan: car.laneChangeDirection * 0.35
+                        });
+                    }
+
+                    const { overtakeCount, nearMissCars } = traffic.update(delta, car, difficultySnapshot);
+                    scoreHud.updateDanger(
+                        traffic.getClosestHazardAhead(car, DANGER_WARNING_DISTANCE, DANGER_WARNING_MIN_CLOSING_SPEED)
+                    );
+
+                    scoreManager.addDistanceScore(car.speed, car.getSpeedRatio(), delta);
+                    scoreManager.updateCombo(delta);
+
+                    const overtakeEvents = scoreManager.registerOvertakes(overtakeCount);
+                    if (overtakeEvents.length > 0) {
+                        const totalOvertakeAmount = overtakeEvents.reduce((sum, event) => sum + event.amount, 0);
+                        if (isDistanceResultMode()) {
+                            scoreHud.showEventBonus(overtakeEvents.length > 1 ? `${overtakeEvents.length} DÉPASSEMENTS` : 'DÉPASSEMENT');
+                        } else {
+                            scoreHud.showEventBonus('overtake', totalOvertakeAmount);
+                        }
+                        if (shouldPlayVisualEffects()) {
+                            effects.playOvertakeEffect();
+                        }
+                        audio.play('overtake', 0.45);
+                        audio.playProcedural('overtake', {
+                            speedRatio: car.getSpeedRatio(),
+                            intensity: Math.min(1.25, 0.85 + overtakeEvents.length * 0.12)
+                        });
+                    }
+
+                    if (nearMissCars.length > 0) {
+                        let totalNearMissAmount = 0;
+                        let nearMissPan = 0;
+                        for (const nearMissCar of nearMissCars) {
+                            const { amount } = scoreManager.registerNearMiss();
+                            totalNearMissAmount += amount;
+                            nearMissPan += THREE.MathUtils.clamp(
+                                (nearMissCar.group.position.x - car.group.position.x) / 6,
+                                -0.85,
+                                0.85
+                            );
+                            if (shouldPlayVisualEffects()) {
+                                effects.playNearMissEffect(nearMissCar.group.position);
+                            }
+                        }
+                        if (isDistanceResultMode()) {
+                            scoreHud.showEventBonus(nearMissCars.length > 1 ? `${nearMissCars.length} NEAR MISS` : 'NEAR MISS !');
+                        } else {
+                            scoreHud.showEventBonus('near-miss', totalNearMissAmount);
+                        }
+                        addModeTimeBonus((currentGameMode.timeBonusOnNearMiss ?? 0) * nearMissCars.length);
+                        audio.play('nearMiss', 0.55);
+                        audio.playProcedural('nearMiss', {
+                            speedRatio: car.getSpeedRatio(),
+                            pan: nearMissPan / nearMissCars.length,
+                            intensity: Math.min(1.35, 0.9 + nearMissCars.length * 0.15)
+                        });
+
+                        if (shouldUseCameraShake()) {
+                            minorShakeTimeRemaining = MINOR_SHAKE_DURATION;
+                            minorShakeMagnitude = Math.max(minorShakeMagnitude, NEAR_MISS_SHAKE_STRENGTH);
+                        }
+                    }
+
+                    const completedObjective = objectiveManager.update({
+                        delta,
+                        overtakeCount,
+                        nearMissCount: nearMissCars.length,
+                        speedRatio: car.getSpeedRatio()
                     });
+                    if (completedObjective) {
+                        const objectiveReward = scoreManager.registerObjectiveReward(completedObjective.reward);
+                        if (isDistanceResultMode()) {
+                            scoreHud.showEventBonus('OBJECTIF RÉUSSI');
+                        } else {
+                            scoreHud.showEventBonus('objective', objectiveReward);
+                        }
+                        addModeTimeBonus(currentGameMode.timeBonusOnObjective ?? 0);
+                        if (shouldPlayVisualEffects()) {
+                            effects.playComboEffect(COMBO_SHAKE_MULTIPLIER_THRESHOLD, car.group.position);
+                        }
+                        audio.play('combo', 0.45);
+                    }
+                    scoreHud.updateObjective(objectiveManager.getCurrentObjective());
 
-                    minorShakeTimeRemaining = MINOR_SHAKE_DURATION;
-                    minorShakeMagnitude = Math.max(minorShakeMagnitude, NEAR_MISS_SHAKE_STRENGTH);
-                }
-
-                const completedObjective = objectiveManager.update({
-                    delta,
-                    overtakeCount,
-                    nearMissCount: nearMissCars.length,
-                    speedRatio: car.getSpeedRatio()
-                });
-                if (completedObjective) {
-                    const objectiveReward = scoreManager.registerObjectiveReward(completedObjective.reward);
-                    scoreHud.showEventBonus('objective', objectiveReward);
-                    effects.playComboEffect(COMBO_SHAKE_MULTIPLIER_THRESHOLD, car.group.position.clone());
-                    audio.play('combo', 0.45);
-                }
-                scoreHud.updateObjective(objectiveManager.getCurrentObjective());
-
-                if (car.justChangedLane) {
-                    minorShakeTimeRemaining = MINOR_SHAKE_DURATION;
-                    minorShakeMagnitude = Math.max(minorShakeMagnitude, LANE_CHANGE_SHAKE_STRENGTH);
-                }
-
-                scoreHud.update(
-                    scoreManager.getScore(),
-                    scoreManager.getBestScore(),
-                    scoreManager.getComboMultiplier(),
-                    scoreManager.getComboProgress(),
-                    scoreManager.getComboTimeRemaining()
-                );
-                scoreHud.updateLevel(difficultySnapshot.level);
-                scoreHud.updateSpeed(car.speed, getDistanceScoreFactor(car.getSpeedRatio()));
-
-                const currentComboMultiplier = scoreManager.getComboMultiplier();
-                if (currentComboMultiplier > previousComboMultiplier) {
-                    effects.playComboEffect(currentComboMultiplier, car.group.position.clone());
-                    audio.play('combo', 0.5);
-
-                    if (currentComboMultiplier >= COMBO_SHAKE_MULTIPLIER_THRESHOLD) {
+                    if (car.justChangedLane && shouldUseCameraShake()) {
                         minorShakeTimeRemaining = MINOR_SHAKE_DURATION;
-                        minorShakeMagnitude = Math.max(minorShakeMagnitude, COMBO_SHAKE_STRENGTH);
+                        minorShakeMagnitude = Math.max(minorShakeMagnitude, LANE_CHANGE_SHAKE_STRENGTH);
                     }
-                }
-                previousComboMultiplier = currentComboMultiplier;
 
-                if (difficultySnapshot.level !== previousDifficultyLevel) {
-                    previousDifficultyLevel = difficultySnapshot.level;
-                    scoreHud.showEventBonus(`NIVEAU ${difficultySnapshot.level}`);
-                }
+                    updatePrimaryHud();
+                    scoreHud.updateLevel(difficultySnapshot.level);
+                    updateSpeedHud();
 
-                const collidedCar = findCollidingTrafficCar(car, traffic);
-                if (collidedCar) {
-                    triggerGameOver(collidedCar);
+                    const currentComboMultiplier = scoreManager.getComboMultiplier();
+                    if (currentComboMultiplier > previousComboMultiplier) {
+                        if (shouldPlayVisualEffects()) {
+                            effects.playComboEffect(currentComboMultiplier, car.group.position);
+                        }
+                        audio.play('combo', 0.5);
+
+                        if (currentComboMultiplier >= COMBO_SHAKE_MULTIPLIER_THRESHOLD && shouldUseCameraShake()) {
+                            minorShakeTimeRemaining = MINOR_SHAKE_DURATION;
+                            minorShakeMagnitude = Math.max(minorShakeMagnitude, COMBO_SHAKE_STRENGTH);
+                        }
+                    }
+                    previousComboMultiplier = currentComboMultiplier;
+
+                    if (difficultySnapshot.level !== previousDifficultyLevel) {
+                        previousDifficultyLevel = difficultySnapshot.level;
+                        scoreHud.showEventBonus(`NIVEAU ${difficultySnapshot.level}`);
+                    }
+
+                    const collidedCar = findCollidingTrafficCar(car, traffic);
+                    if (collidedCar) {
+                        triggerGameOver(collidedCar);
+                    }
                 }
             }
         }
@@ -864,7 +1152,7 @@ export function startGame() {
         road.userData.update(car);
 
         const speedRatio = car.getSpeedRatio();
-        speedEffectOverlay.update(isGameOver ? 0 : speedRatio);
+        speedEffectOverlay.update(isGameOver || !shouldUseSpeedEffects() ? 0 : speedRatio);
         audio.updateEngine(speedRatio, {
             accelerating: controls.isAccelerating(),
             braking: controls.isBraking(),
@@ -888,7 +1176,7 @@ export function startGame() {
         camera.position.y = car.group.position.y + CAMERA_OFFSET_Y + verticalBob;
         camera.position.z = car.group.position.z + CAMERA_OFFSET_Z + speedRatio * CAMERA_MAX_PULLBACK;
 
-        if (shakeTimeRemaining > 0) {
+        if (shakeTimeRemaining > 0 && shouldUseCameraShake()) {
             shakeTimeRemaining = Math.max(0, shakeTimeRemaining - delta);
             const shakeStrength = shakeTimeRemaining / IMPACT_SHAKE_DURATION;
 
@@ -896,7 +1184,7 @@ export function startGame() {
             camera.position.y += (Math.random() - 0.5) * IMPACT_SHAKE_POSITION_STRENGTH * shakeStrength;
         }
 
-        if (minorShakeTimeRemaining > 0) {
+        if (minorShakeTimeRemaining > 0 && shouldUseCameraShake()) {
             minorShakeTimeRemaining = Math.max(0, minorShakeTimeRemaining - delta);
             const minorShakeStrength = (minorShakeTimeRemaining / MINOR_SHAKE_DURATION) * minorShakeMagnitude;
 
@@ -908,7 +1196,7 @@ export function startGame() {
             }
         }
 
-        if (isGameStarted && !isGameOver && speedRatio > HIGH_SPEED_SHAKE_THRESHOLD) {
+        if (isGameStarted && !isGameOver && shouldUseCameraShake() && speedRatio > HIGH_SPEED_SHAKE_THRESHOLD) {
             const highSpeedFactor = (speedRatio - HIGH_SPEED_SHAKE_THRESHOLD) / (1 - HIGH_SPEED_SHAKE_THRESHOLD);
             camera.position.x += (Math.random() - 0.5) * HIGH_SPEED_SHAKE_STRENGTH * highSpeedFactor;
             camera.position.y += (Math.random() - 0.5) * HIGH_SPEED_SHAKE_STRENGTH * highSpeedFactor;
@@ -922,7 +1210,7 @@ export function startGame() {
 
         camera.rotation.z += cameraRoll;
 
-        if (shakeTimeRemaining > 0) {
+        if (shakeTimeRemaining > 0 && shouldUseCameraShake()) {
             const shakeStrength = shakeTimeRemaining / IMPACT_SHAKE_DURATION;
             camera.rotation.z += (Math.random() - 0.5) * IMPACT_SHAKE_ROTATION_STRENGTH * shakeStrength;
         }
@@ -940,6 +1228,7 @@ export function startGame() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(getRenderPixelRatio());
     });
 
     window.addEventListener('keydown', (event) => {

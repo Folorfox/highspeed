@@ -5,6 +5,95 @@
 
 const BEST_SCORE_STORAGE_KEY = 'highwayRush.bestScore';
 const VEHICLE_BEST_SCORES_STORAGE_KEY = 'highwayRush.vehicleBestScores';
+const MODE_BEST_SCORES_STORAGE_KEY = 'highwayRush.modeBestScores';
+const MODE_BEST_RESULTS_STORAGE_KEY = 'highwayRush.modeBestResults';
+const CAREER_STATS_STORAGE_KEY = 'highwayRush.careerStats';
+
+const DEFAULT_CAREER_STATS = {
+    runs: 0,
+    totalScore: 0,
+    totalOvertakes: 0,
+    totalNearMisses: 0,
+    totalObjectives: 0,
+    bestCombo: 0,
+    bestSurvivalTime: 0,
+    bestSpeedKmh: 0
+};
+
+const CAREER_MILESTONE_DEFINITIONS = [
+    {
+        id: 'first-run',
+        label: 'Première sortie',
+        description: 'Termine 1 course',
+        stat: 'runs',
+        target: 1,
+        format: 'number'
+    },
+    {
+        id: 'regular-driver',
+        label: 'Pilote régulier',
+        description: 'Termine 5 courses',
+        stat: 'runs',
+        target: 5,
+        format: 'number'
+    },
+    {
+        id: 'score-hunter',
+        label: 'Chasseur de score',
+        description: 'Cumule 25 000 points',
+        stat: 'totalScore',
+        target: 25000,
+        format: 'number'
+    },
+    {
+        id: 'overtake-specialist',
+        label: 'Spécialiste dépassement',
+        description: 'Réalise 50 dépassements',
+        stat: 'totalOvertakes',
+        target: 50,
+        format: 'number'
+    },
+    {
+        id: 'near-miss-master',
+        label: 'Maîtrise du risque',
+        description: 'Réussis 20 near miss',
+        stat: 'totalNearMisses',
+        target: 20,
+        format: 'number'
+    },
+    {
+        id: 'two-minutes',
+        label: 'Longue distance',
+        description: 'Survis 2 minutes',
+        stat: 'bestSurvivalTime',
+        target: 120,
+        format: 'duration'
+    },
+    {
+        id: 'combo-chain',
+        label: 'Combo parfait',
+        description: 'Atteins un combo x5',
+        stat: 'bestCombo',
+        target: 5,
+        format: 'combo'
+    },
+    {
+        id: 'top-speed',
+        label: 'Plein gaz',
+        description: 'Atteins 160 KM/H',
+        stat: 'bestSpeedKmh',
+        target: 160,
+        format: 'speed'
+    },
+    {
+        id: 'objective-runner',
+        label: 'Mission en chaîne',
+        description: 'Termine 12 objectifs',
+        stat: 'totalObjectives',
+        target: 12,
+        format: 'number'
+    }
+];
 
 // Le score de base est basé sur la distance réellement parcourue, mais il ne
 // récompense plus la conduite trop lente : en dessous d'un certain rythme,
@@ -33,11 +122,23 @@ export function getDistanceScoreFactor(speedRatio) {
     );
 }
 
+function sanitizePositiveNumber(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function getCareerStatValue(stats, statName) {
+    return sanitizePositiveNumber(stats?.[statName]);
+}
+
 export class ScoreManager {
     constructor() {
         this.score = 0;
         this.bestScore = this.loadBestScore();
         this.vehicleBestScores = this.loadVehicleBestScores();
+        this.modeBestScores = this.loadModeBestScores();
+        this.modeBestResults = this.loadModeBestResults();
+        this.careerStats = this.loadCareerStats();
 
         // this.comboCount sert À LA FOIS de compteur d'événements chaînés
         // et de multiplicateur courant (0 = aucun combo actif).
@@ -47,6 +148,7 @@ export class ScoreManager {
         this.nearMissCount = 0;
         this.maxComboMultiplier = 0;
         this.objectiveCount = 0;
+        this.scoreMultiplier = 1;
     }
 
     loadBestScore() {
@@ -88,6 +190,47 @@ export class ScoreManager {
         }
     }
 
+    loadModeBestScores() {
+        try {
+            const stored = window.localStorage.getItem(MODE_BEST_SCORES_STORAGE_KEY);
+            if (!stored) return {};
+
+            const parsed = JSON.parse(stored);
+            if (!parsed || typeof parsed !== 'object') return {};
+
+            return Object.fromEntries(
+                Object.entries(parsed)
+                    .map(([modeId, score]) => [modeId, parseInt(score, 10)])
+                    .filter(([, score]) => Number.isFinite(score) && score >= 0)
+            );
+        } catch (error) {
+            return {};
+        }
+    }
+
+    loadModeBestResults() {
+        try {
+            const stored = window.localStorage.getItem(MODE_BEST_RESULTS_STORAGE_KEY);
+            if (!stored) return {};
+
+            const parsed = JSON.parse(stored);
+            if (!parsed || typeof parsed !== 'object') return {};
+
+            return Object.fromEntries(
+                Object.entries(parsed)
+                    .filter(([, metrics]) => metrics && typeof metrics === 'object')
+                    .map(([modeId, metrics]) => [
+                        modeId,
+                        {
+                            distance: sanitizePositiveNumber(metrics.distance)
+                        }
+                    ])
+            );
+        } catch (error) {
+            return {};
+        }
+    }
+
     saveVehicleBestScores() {
         try {
             window.localStorage.setItem(
@@ -100,12 +243,68 @@ export class ScoreManager {
         }
     }
 
+    saveModeBestScores() {
+        try {
+            window.localStorage.setItem(
+                MODE_BEST_SCORES_STORAGE_KEY,
+                JSON.stringify(this.modeBestScores)
+            );
+        } catch (error) {
+            // Même logique : le jeu reste jouable si la sauvegarde navigateur est bloquée.
+        }
+    }
+
+    saveModeBestResults() {
+        try {
+            window.localStorage.setItem(
+                MODE_BEST_RESULTS_STORAGE_KEY,
+                JSON.stringify(this.modeBestResults)
+            );
+        } catch (error) {
+            // Même logique : le jeu reste jouable si la sauvegarde navigateur est bloquée.
+        }
+    }
+
+    loadCareerStats() {
+        try {
+            const stored = window.localStorage.getItem(CAREER_STATS_STORAGE_KEY);
+            if (!stored) return { ...DEFAULT_CAREER_STATS };
+
+            const parsed = JSON.parse(stored);
+            if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_CAREER_STATS };
+
+            return {
+                runs: Math.floor(sanitizePositiveNumber(parsed.runs)),
+                totalScore: Math.floor(sanitizePositiveNumber(parsed.totalScore)),
+                totalOvertakes: Math.floor(sanitizePositiveNumber(parsed.totalOvertakes)),
+                totalNearMisses: Math.floor(sanitizePositiveNumber(parsed.totalNearMisses)),
+                totalObjectives: Math.floor(sanitizePositiveNumber(parsed.totalObjectives)),
+                bestCombo: Math.floor(sanitizePositiveNumber(parsed.bestCombo)),
+                bestSurvivalTime: sanitizePositiveNumber(parsed.bestSurvivalTime),
+                bestSpeedKmh: Math.floor(sanitizePositiveNumber(parsed.bestSpeedKmh))
+            };
+        } catch (error) {
+            return { ...DEFAULT_CAREER_STATS };
+        }
+    }
+
+    saveCareerStats() {
+        try {
+            window.localStorage.setItem(
+                CAREER_STATS_STORAGE_KEY,
+                JSON.stringify(this.careerStats)
+            );
+        } catch (error) {
+            // La carrière est un bonus : aucune erreur de stockage ne doit bloquer le jeu.
+        }
+    }
+
     /** À appeler chaque frame avec la vitesse courante du joueur. */
     addDistanceScore(speed, speedRatio, delta) {
         const speedScoreFactor = getDistanceScoreFactor(speedRatio);
         if (speedScoreFactor <= 0) return;
 
-        this.score += speed * delta * SCORE_PER_UNIT_DISTANCE * speedScoreFactor;
+        this.score += speed * delta * SCORE_PER_UNIT_DISTANCE * speedScoreFactor * this.scoreMultiplier;
     }
 
     /**
@@ -135,7 +334,7 @@ export class ScoreManager {
         this.comboTimer = COMBO_TIMEOUT;
 
         const multiplier = this.comboCount;
-        const amount = baseAmount * multiplier;
+        const amount = baseAmount * multiplier * this.scoreMultiplier;
         this.score += amount;
         this.maxComboMultiplier = Math.max(this.maxComboMultiplier, multiplier);
 
@@ -165,8 +364,13 @@ export class ScoreManager {
 
     registerObjectiveReward(amount) {
         this.objectiveCount += 1;
-        this.score += amount;
-        return amount;
+        const multipliedAmount = amount * this.scoreMultiplier;
+        this.score += multipliedAmount;
+        return multipliedAmount;
+    }
+
+    setScoreMultiplier(multiplier = 1) {
+        this.scoreMultiplier = Math.max(0.1, Number.isFinite(multiplier) ? multiplier : 1);
     }
 
     getComboMultiplier() {
@@ -193,21 +397,70 @@ export class ScoreManager {
      * À appeler à la fin d'une partie (Game Over) : fige le score courant et
      * met à jour + sauvegarde le meilleur score si besoin.
      */
-    finalizeGame(vehicleId = null) {
+    finalizeGame(vehicleId = null, modeId = null, runStats = {}) {
         const finalScore = this.getScore();
+        const scoreRecordsEnabled = runStats.scoreRecordsEnabled !== false;
+        const previouslyCompletedMilestoneIds = new Set(
+            this.getCareerMilestones()
+                .filter((milestone) => milestone.completed)
+                .map((milestone) => milestone.id)
+        );
 
-        if (finalScore > this.bestScore) {
+        if (scoreRecordsEnabled && finalScore > this.bestScore) {
             this.bestScore = finalScore;
             this.saveBestScore();
         }
 
-        if (vehicleId) {
+        if (scoreRecordsEnabled && vehicleId) {
             const currentVehicleBest = this.getVehicleBestScore(vehicleId);
             if (finalScore > currentVehicleBest) {
                 this.vehicleBestScores[vehicleId] = finalScore;
                 this.saveVehicleBestScores();
             }
         }
+
+        if (modeId) {
+            if (runStats.modeResultMetric === 'distance') {
+                const finalDistance = sanitizePositiveNumber(runStats.modeResultValue);
+                const currentDistanceBest = this.getModeBestResult(modeId, 'distance');
+                if (finalDistance > currentDistanceBest) {
+                    this.modeBestResults[modeId] = {
+                        ...this.modeBestResults[modeId],
+                        distance: finalDistance
+                    };
+                    this.saveModeBestResults();
+                }
+            } else {
+                const currentModeBest = this.getModeBestScore(modeId);
+                if (finalScore > currentModeBest) {
+                    this.modeBestScores[modeId] = finalScore;
+                    this.saveModeBestScores();
+                }
+            }
+        }
+
+        this.careerStats.runs += 1;
+        if (scoreRecordsEnabled) {
+            this.careerStats.totalScore += finalScore;
+        }
+        this.careerStats.totalOvertakes += this.overtakeCount;
+        this.careerStats.totalNearMisses += this.nearMissCount;
+        this.careerStats.totalObjectives += this.objectiveCount;
+        this.careerStats.bestCombo = Math.max(this.careerStats.bestCombo, this.maxComboMultiplier);
+        this.careerStats.bestSurvivalTime = Math.max(
+            this.careerStats.bestSurvivalTime,
+            sanitizePositiveNumber(runStats.survivalTime)
+        );
+        this.careerStats.bestSpeedKmh = Math.max(
+            this.careerStats.bestSpeedKmh,
+            Math.floor(sanitizePositiveNumber(runStats.maxSpeedKmh))
+        );
+        this.saveCareerStats();
+
+        const newlyCompletedMilestones = this.getCareerMilestones()
+            .filter((milestone) => milestone.completed && !previouslyCompletedMilestoneIds.has(milestone.id));
+
+        return { newlyCompletedMilestones };
     }
 
     /** Remet le score courant à zéro pour une nouvelle partie (le meilleur score, lui, reste). */
@@ -230,6 +483,65 @@ export class ScoreManager {
 
     getVehicleBestScore(vehicleId) {
         return this.vehicleBestScores[vehicleId] ?? 0;
+    }
+
+    getModeBestScore(modeId) {
+        return this.modeBestScores[modeId] ?? 0;
+    }
+
+    getModeBestResult(modeId, metric = 'score') {
+        if (metric === 'distance') {
+            return this.modeBestResults[modeId]?.distance ?? 0;
+        }
+
+        return this.getModeBestScore(modeId);
+    }
+
+    getCareerStats() {
+        return { ...this.careerStats };
+    }
+
+    getVehicleUnlockInfo(vehicle) {
+        const requirement = vehicle?.unlockRequirement;
+        if (!requirement) {
+            return {
+                unlocked: true,
+                label: 'Disponible',
+                value: 1,
+                target: 1,
+                format: 'number',
+                progressRatio: 1
+            };
+        }
+
+        const value = getCareerStatValue(this.careerStats, requirement.stat);
+        const target = sanitizePositiveNumber(requirement.target);
+        const progressRatio = target > 0 ? Math.min(1, value / target) : 1;
+
+        return {
+            unlocked: value >= target,
+            label: requirement.label ?? 'Défi carrière',
+            value,
+            target,
+            format: requirement.format ?? 'number',
+            progressRatio
+        };
+    }
+
+    getCareerMilestones() {
+        return CAREER_MILESTONE_DEFINITIONS.map((milestone) => {
+            const value = getCareerStatValue(this.careerStats, milestone.stat);
+            const progressRatio = milestone.target > 0
+                ? Math.min(1, value / milestone.target)
+                : 1;
+
+            return {
+                ...milestone,
+                value,
+                completed: value >= milestone.target,
+                progressRatio
+            };
+        });
     }
 
     getOvertakeCount() {

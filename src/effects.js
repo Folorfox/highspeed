@@ -91,12 +91,15 @@ class ParticlePool {
 
     /**
      * @param {THREE.Vector3} position - position de spawn (monde).
-     * @param {object} options - { velocity, life, size, color, gravity }.
+     * @param {object} options - { velocity, velocityX, velocityY, velocityZ, life, size, color, gravity }.
      */
     spawn(position, options = {}) {
         const slot = this.acquire();
         const {
-            velocity = new THREE.Vector3(),
+            velocity = null,
+            velocityX = 0,
+            velocityY = 0,
+            velocityZ = 0,
             life = 0.5,
             size = 0.5,
             color = 0xffffff,
@@ -104,7 +107,11 @@ class ParticlePool {
         } = options;
 
         slot.sprite.position.copy(position);
-        slot.velocity.copy(velocity);
+        if (velocity) {
+            slot.velocity.copy(velocity);
+        } else {
+            slot.velocity.set(velocityX, velocityY, velocityZ);
+        }
         slot.gravity = gravity;
         slot.life = life;
         slot.maxLife = life;
@@ -288,6 +295,7 @@ export class EffectsManager {
     constructor(scene) {
         this.pool = new ParticlePool(scene, PARTICLE_POOL_SIZE, createParticleTexture());
         this.tireMarks = new TireMarkPool(scene, TIRE_MARK_POOL_SIZE);
+        this.tireMarkSpawnPosition = new THREE.Vector3();
 
         // Flash d'impact : un simple overlay DOM plein écran, dont
         // l'opacité décroît chaque frame — pas de création d'élément après
@@ -322,11 +330,9 @@ export class EffectsManager {
             const angle = Math.random() * Math.PI * 2;
             const speed = COLLISION_PARTICLE_SPEED * (0.5 + Math.random());
             return {
-                velocity: new THREE.Vector3(
-                    Math.cos(angle) * speed,
-                    2 + Math.random() * 4,
-                    Math.sin(angle) * speed
-                ),
+                velocityX: Math.cos(angle) * speed,
+                velocityY: 2 + Math.random() * 4,
+                velocityZ: Math.sin(angle) * speed,
                 life: COLLISION_PARTICLE_LIFE * (0.7 + Math.random() * 0.6),
                 size: 0.35 + Math.random() * 0.35,
                 color: COLLISION_PARTICLE_COLOR,
@@ -347,11 +353,9 @@ export class EffectsManager {
             const angle = Math.random() * Math.PI * 2;
             const speed = 1.5 + Math.random() * 1.5;
             return {
-                velocity: new THREE.Vector3(
-                    Math.cos(angle) * speed,
-                    1 + Math.random(),
-                    Math.sin(angle) * speed
-                ),
+                velocityX: Math.cos(angle) * speed,
+                velocityY: 1 + Math.random(),
+                velocityZ: Math.sin(angle) * speed,
                 life: NEAR_MISS_PARTICLE_LIFE * (0.8 + Math.random() * 0.4),
                 size: 0.16 + Math.random() * 0.12,
                 color: NEAR_MISS_PARTICLE_COLOR,
@@ -379,11 +383,9 @@ export class EffectsManager {
             const angle = Math.random() * Math.PI * 2;
             const speed = 2 + Math.random() * 2;
             return {
-                velocity: new THREE.Vector3(
-                    Math.cos(angle) * speed,
-                    2 + Math.random() * 2,
-                    Math.sin(angle) * speed
-                ),
+                velocityX: Math.cos(angle) * speed,
+                velocityY: 2 + Math.random() * 2,
+                velocityZ: Math.sin(angle) * speed,
                 life: 0.45 + Math.random() * 0.3,
                 size: 0.2 + Math.random() * 0.18,
                 color: COMBO_PARTICLE_COLOR,
@@ -395,11 +397,9 @@ export class EffectsManager {
     /** Freinage appuyé : deux petits puffs de fumée légère derrière la voiture. */
     playBrakeEffect(position) {
         spawnBurst(this.pool, position, BRAKE_PARTICLE_COUNT, () => ({
-            velocity: new THREE.Vector3(
-                (Math.random() - 0.5) * 0.6,
-                0.4 + Math.random() * 0.3,
-                1 + Math.random()
-            ),
+            velocityX: (Math.random() - 0.5) * 0.6,
+            velocityY: 0.4 + Math.random() * 0.3,
+            velocityZ: 1 + Math.random(),
             life: BRAKE_PARTICLE_LIFE * (0.7 + Math.random() * 0.5),
             size: 0.3 + Math.random() * 0.2,
             color: BRAKE_PARTICLE_COLOR,
@@ -420,12 +420,13 @@ export class EffectsManager {
         const yaw = lateralDirection * THREE.MathUtils.degToRad(5);
 
         for (const side of [-1, 1]) {
+            this.tireMarkSpawnPosition.set(
+                position.x + side * TIRE_MARK_SIDE_X,
+                TIRE_MARK_Y,
+                position.z + TIRE_MARK_REAR_Z + length * 0.35
+            );
             this.tireMarks.spawn(
-                new THREE.Vector3(
-                    position.x + side * TIRE_MARK_SIDE_X,
-                    TIRE_MARK_Y,
-                    position.z + TIRE_MARK_REAR_Z + length * 0.35
-                ),
+                this.tireMarkSpawnPosition,
                 {
                     length,
                     opacity,

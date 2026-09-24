@@ -459,6 +459,8 @@ function computeSlotCount(spawnAhead, despawnBehind, spacing) {
 // Grand dôme (BackSide) avec une couleur par sommet : bleu profond au
 // zénith, plus clair vers l'horizon. Suit la voiture chaque frame (voir
 // update()) pour ne jamais être "dépassé" malgré ses 500 unités de rayon.
+const skyGradientColor = new THREE.Color();
+
 function applySkyDomeGradient(dome, colorTop, colorHorizon) {
     const positions = dome.geometry.attributes.position;
     const colors = dome.geometry.attributes.color;
@@ -466,8 +468,8 @@ function applySkyDomeGradient(dome, colorTop, colorHorizon) {
     for (let i = 0; i < positions.count; i++) {
         const y = positions.getY(i);
         const t = THREE.MathUtils.clamp(y / 500 + 0.12, 0, 1);
-        const c = colorHorizon.clone().lerp(colorTop, t);
-        colors.setXYZ(i, c.r, c.g, c.b);
+        skyGradientColor.copy(colorHorizon).lerp(colorTop, t);
+        colors.setXYZ(i, skyGradientColor.r, skyGradientColor.g, skyGradientColor.b);
     }
 
     colors.needsUpdate = true;
