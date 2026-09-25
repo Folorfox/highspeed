@@ -13,7 +13,8 @@ import {
     ScoreHud,
     SPEED_DISPLAY_KMH_PER_GAME_UNIT,
     SpeedEffectOverlay,
-    StartScreen
+    StartScreen,
+    TouchControlsOverlay
 } from './ui.js';
 import { getDistanceScoreFactor, ScoreManager } from './score.js';
 import { DifficultyManager } from './difficulty.js';
@@ -329,6 +330,7 @@ function formatDistanceKm(distanceMeters) {
 
 export function startGame() {
     let gameSettings = loadGameSettings();
+    audio.setVolumes(gameSettings);
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(SKY_COLOR);
@@ -503,6 +505,12 @@ export function startGame() {
     snapCameraToCar();
 
     const controls = new Controls();
+    const touchControls = new TouchControlsOverlay({
+        onLeft: () => controls.shiftLeft(),
+        onRight: () => controls.shiftRight(),
+        onAccelerateChange: (active) => controls.setTouchAccelerating(active),
+        onBrakeChange: (active) => controls.setTouchBraking(active)
+    });
 
     let isGameStarted = false;
     let isGameOver = false;
@@ -535,7 +543,10 @@ export function startGame() {
     let audioToggleButton = null;
 
     let startScreen = null;
-    const gameOverScreen = new GameOverScreen(() => showVehicleSelection());
+    const gameOverScreen = new GameOverScreen(
+        () => startRun(car.vehicle.id, currentGameMode.id),
+        () => showVehicleSelection('home')
+    );
     const pauseScreen = new PauseScreen(
         () => resumeGame(),
         () => quitRunToMenu()
@@ -564,6 +575,7 @@ export function startGame() {
             gameSettings = nextSettings;
             saveGameSettings(gameSettings);
             applyRenderSettings();
+            audio.setVolumes(gameSettings);
 
             if (!shouldUseSpeedEffects()) {
                 speedEffectOverlay.update(0);
@@ -589,14 +601,26 @@ export function startGame() {
                 progress: 1
             });
         },
+        onRequestFullscreen: () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen?.();
+            } else {
+                document.exitFullscreen?.();
+            }
+        },
         onStart: (vehicleId, modeId) => startRun(vehicleId, modeId)
     });
+
+    function updateTouchControlsVisibility() {
+        touchControls.setVisible(isGameStarted && !isGameOver && !isPaused);
+    }
 
     function pauseGame() {
         if (!isGameStarted || isGameOver || isPaused) return;
 
         isPaused = true;
         controls.clear();
+        updateTouchControlsVisibility();
         pauseScreen.show();
         speedEffectOverlay.update(0);
         audio.stopEngine();
@@ -608,6 +632,7 @@ export function startGame() {
         isPaused = false;
         controls.clear();
         pauseScreen.hide();
+        updateTouchControlsVisibility();
         audio.startEngine();
     }
 
@@ -617,6 +642,7 @@ export function startGame() {
         isGameStarted = false;
         isPaused = false;
         controls.clear();
+        updateTouchControlsVisibility();
         audio.stopEngine();
         speedEffectOverlay.update(0);
         countdownOverlay.hide();
@@ -770,6 +796,7 @@ export function startGame() {
         isGameOver = true;
         shakeTimeRemaining = playCrashEffects && shouldUseCameraShake() ? IMPACT_SHAKE_DURATION : 0;
         countdownTimeRemaining = 0;
+        updateTouchControlsVisibility();
 
         audio.stopEngine();
         countdownOverlay.hide();
@@ -783,11 +810,15 @@ export function startGame() {
                 .map((vehicle) => vehicle.id)
         );
         const distanceResultMode = isDistanceResultMode();
+        const previousPrimaryBest = distanceResultMode
+            ? scoreManager.getModeBestResult(currentGameMode.id, 'distance')
+            : scoreManager.getBestScore();
+        const primaryResultValue = distanceResultMode ? runDistanceMeters : scoreManager.getScore();
         const careerResult = scoreManager.finalizeGame(car.vehicle.id, currentGameMode.id, {
             survivalTime: difficulty.getSurvivalTime(),
             maxSpeedKmh: Math.round(maxRunSpeed * SPEED_DISPLAY_KMH_PER_GAME_UNIT),
             modeResultMetric: currentGameMode.resultMetric,
-            modeResultValue: distanceResultMode ? runDistanceMeters : scoreManager.getScore(),
+            modeResultValue: primaryResultValue,
             scoreRecordsEnabled: !distanceResultMode
         });
         const newlyCompletedMilestones = careerResult.newlyCompletedMilestones ?? [];
@@ -814,6 +845,15 @@ export function startGame() {
             { label: 'COMBO MAX', value: `x${scoreManager.getMaxComboMultiplier()}` },
             { label: 'OBJECTIFS', value: scoreManager.getObjectiveCount() }
         ];
+
+        if (primaryResultValue > previousPrimaryBest) {
+            summaryItems.unshift({
+                label: 'NOUVEAU RECORD',
+                value: distanceResultMode ? formatDistanceKm(primaryResultValue) : Math.floor(primaryResultValue).toLocaleString('fr-FR'),
+                highlight: true
+            });
+            audio.playProcedural('combo', { intensity: 1.25 });
+        }
 
         if (newlyCompletedMilestones.length > 0) {
             summaryItems.unshift({
@@ -897,6 +937,7 @@ export function startGame() {
         isPaused = false;
         pauseScreen.hide();
         countdownOverlay.hide();
+        updateTouchControlsVisibility();
         audio.stopEngine();
         effects.reset();
         applyDayNightAtmosphere();
@@ -940,6 +981,7 @@ export function startGame() {
         isGameStarted = true;
         scoreHud.updateObjective(objectiveManager.getCurrentObjective());
         updateModeHud();
+        updateTouchControlsVisibility();
         audio.startEngine();
         startCountdown();
     }
@@ -948,6 +990,7 @@ export function startGame() {
         isGameStarted = false;
         audio.stopEngine();
         resetGame();
+        updateTouchControlsVisibility();
         startScreen.show(panel);
     }
 

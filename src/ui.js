@@ -16,8 +16,9 @@ export class StartScreen {
      * @param {() => { runs: number, totalScore: number, totalOvertakes: number, totalNearMisses: number, totalObjectives: number, bestCombo: number, bestSurvivalTime: number, bestSpeedKmh: number }} options.getCareerStats
      * @param {() => Array<{ id: string, label: string, description: string, value: number, target: number, format: string, completed: boolean, progressRatio: number }>} options.getCareerMilestones
      * @param {(vehicle: object) => { unlocked: boolean, label: string, value: number, target: number, format: string, progressRatio: number }} options.getVehicleUnlockInfo
-     * @param {{ performanceMode: boolean, cameraShake: boolean, speedEffects: boolean }} options.settings
+     * @param {{ performanceMode: boolean, cameraShake: boolean, speedEffects: boolean, masterVolume?: number, effectsVolume?: number, engineVolume?: number }} options.settings
      * @param {(settings: object) => void} options.onSettingsChange
+     * @param {() => void} options.onRequestFullscreen
      */
     constructor({
         onStart,
@@ -31,7 +32,8 @@ export class StartScreen {
         getCareerMilestones = () => [],
         getVehicleUnlockInfo = () => ({ unlocked: true, label: 'Disponible', value: 1, target: 1, format: 'number', progressRatio: 1 }),
         settings = {},
-        onSettingsChange = () => {}
+        onSettingsChange = () => {},
+        onRequestFullscreen = () => {}
     }) {
         this.onStart = onStart;
         this.vehicles = vehicles;
@@ -47,9 +49,13 @@ export class StartScreen {
             performanceMode: false,
             cameraShake: true,
             speedEffects: true,
+            masterVolume: 0.82,
+            effectsVolume: 0.78,
+            engineVolume: 0.72,
             ...settings
         };
         this.onSettingsChange = onSettingsChange;
+        this.onRequestFullscreen = onRequestFullscreen;
         this.selectedVehicleId = vehicles.find((vehicle) => this.getVehicleUnlockInfo(vehicle).unlocked)?.id
             ?? vehicles[0]?.id
             ?? null;
@@ -66,6 +72,7 @@ export class StartScreen {
         this.selectedModeElements = [...this.element.querySelectorAll('[data-role="selected-mode"]')];
         this.selectedModeDetailElements = [...this.element.querySelectorAll('[data-role="selected-mode-detail"]')];
         this.settingButtons = [...this.element.querySelectorAll('[data-setting-key]')];
+        this.settingSliders = [...this.element.querySelectorAll('[data-setting-range]')];
 
         for (const button of this.navButtons) {
             button.addEventListener('click', () => {
@@ -107,6 +114,13 @@ export class StartScreen {
                 this.setSetting(key, !this.settings[key]);
             });
         }
+        for (const slider of this.settingSliders) {
+            slider.addEventListener('input', () => {
+                this.setNumericSetting(slider.dataset.settingRange, Number(slider.value));
+            });
+        }
+        const fullscreenButton = this.element.querySelector('[data-role="fullscreen"]');
+        fullscreenButton?.addEventListener('click', () => this.onRequestFullscreen());
 
         this.ensureUnlockedVehicleSelection();
         this.refreshVehicleUnlocks();
@@ -684,6 +698,52 @@ export class StartScreen {
         return button;
     }
 
+    createSettingRange(key, title, description) {
+        const row = document.createElement('label');
+        row.style.cssText = `
+            display: grid;
+            gap: 9px;
+            min-height: 74px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: #ffffff;
+        `;
+        row.innerHTML = `
+            <span style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                <span style="display: grid; gap: 4px;">
+                    <span style="font-size: 0.9rem; font-weight: 900;">${title}</span>
+                    <span style="font-size: 0.72rem; font-weight: 760; line-height: 1.35; color: rgba(255, 255, 255, 0.58);">${description}</span>
+                </span>
+                <span data-role="setting-range-value-${key}" style="min-width: 44px; text-align: right; font-size: 0.78rem; font-weight: 950; color: #ffd23f;">0%</span>
+            </span>
+            <input data-setting-range="${key}" type="range" min="0" max="1" step="0.01" value="${this.settings[key] ?? 1}" style="width: 100%; accent-color: #ffd23f;">
+        `;
+        return row;
+    }
+
+    createFullscreenButton() {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.role = 'fullscreen';
+        button.style.cssText = `
+            min-height: 54px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.06);
+            color: #ffffff;
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.9rem;
+            font-weight: 900;
+            text-align: left;
+        `;
+        button.textContent = 'PLEIN ÉCRAN';
+        return button;
+    }
+
     buildHomePanel() {
         const panel = this.createPanel('home');
         panel.style.alignContent = 'center';
@@ -882,9 +942,76 @@ export class StartScreen {
             'Effet de vitesse',
             'Affiche la vignette et les lignes de vitesse à haute allure.'
         ));
-        content.appendChild(this.createSettingItem('Son', 'Bouton en bas à droite'));
+        content.appendChild(this.createSettingRange(
+            'masterVolume',
+            'Volume général',
+            'Ajuste tous les sons du jeu.'
+        ));
+        content.appendChild(this.createSettingRange(
+            'effectsVolume',
+            'Volume effets',
+            'Dépassements, near miss, collisions et confirmations.'
+        ));
+        content.appendChild(this.createSettingRange(
+            'engineVolume',
+            'Volume moteur',
+            'Moteur, route et freinage procédural.'
+        ));
+        content.appendChild(this.createFullscreenButton());
         content.appendChild(this.createSettingItem('Commandes', 'Z/W, S, Q/A, D, P'));
         content.appendChild(this.createSettingItem('Aide visuelle', 'Danger, objectifs, combo'));
+        panel.appendChild(content);
+        return panel;
+    }
+
+    createHowToItem(title, description) {
+        const item = document.createElement('div');
+        item.style.cssText = `
+            display: grid;
+            gap: 5px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.06);
+        `;
+        item.innerHTML = `
+            <strong style="font-size: 0.9rem; color: #ffffff;">${title}</strong>
+            <span style="font-size: 0.76rem; line-height: 1.42; font-weight: 760; color: rgba(255, 255, 255, 0.64);">${description}</span>
+        `;
+        return item;
+    }
+
+    buildHowToPanel() {
+        const panel = this.createPanel('howto');
+        panel.style.alignContent = 'start';
+
+        const content = document.createElement('div');
+        content.style.cssText = `
+            display: grid;
+            gap: 14px;
+            width: min(100%, 760px);
+        `;
+        content.innerHTML = `
+            <span style="font-size: 0.8rem; font-weight: 900; letter-spacing: 0.16em; color: #ffd23f;">PILOTAGE</span>
+            <h2 style="margin: -4px 0 0; font-size: clamp(1.65rem, 4vw, 2.4rem); font-weight: 950; letter-spacing: 0;">Comment jouer</h2>
+        `;
+
+        const grid = document.createElement('div');
+        grid.style.cssText = `
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+        `;
+        grid.appendChild(this.createHowToItem('Accélérer', 'Maintiens Z ou W. Sur mobile, maintiens le bouton ACCÉLÉRER.'));
+        grid.appendChild(this.createHowToItem('Freiner', 'Maintiens S. Sur mobile, maintiens le bouton FREINER.'));
+        grid.appendChild(this.createHowToItem('Changer de voie', 'Appuie sur Q/A pour aller à gauche, D pour aller à droite. Sur mobile, utilise les flèches.'));
+        grid.appendChild(this.createHowToItem('Dépassements', 'Passe devant une voiture du trafic sans toucher. Les dépassements ajoutent du score et alimentent le combo.'));
+        grid.appendChild(this.createHowToItem('Near miss', 'Passe très près d’un véhicule ennemi sans collision pour obtenir un bonus plus risqué.'));
+        grid.appendChild(this.createHowToItem('Combo', 'Enchaîne dépassements et near miss avant que la jauge ne retombe à zéro.'));
+        grid.appendChild(this.createHowToItem('Score et distance', 'Les modes classiques comptent les points. Le contre-la-montre mesure la distance parcourue.'));
+        grid.appendChild(this.createHowToItem('Game Over', 'La partie se termine en cas de collision ou lorsque le chrono du contre-la-montre arrive à zéro.'));
+
+        content.appendChild(grid);
         panel.appendChild(content);
         return panel;
     }
@@ -970,11 +1097,12 @@ export class StartScreen {
             display: grid;
             gap: 8px;
         `;
-        nav.appendChild(this.createMenuButton('ACCUEIL', 'home', { primary: true }));
+        nav.appendChild(this.createMenuButton('JOUER', 'home', { primary: true }));
         nav.appendChild(this.createMenuButton('MODES', 'modes'));
         nav.appendChild(this.createMenuButton('GARAGE', 'garage'));
-        nav.appendChild(this.createMenuButton('CARRIÈRE', 'career'));
+        nav.appendChild(this.createMenuButton('STATISTIQUES', 'career'));
         nav.appendChild(this.createMenuButton('PARAMÈTRES', 'settings'));
+        nav.appendChild(this.createMenuButton('COMMENT JOUER', 'howto'));
 
         const record = document.createElement('div');
         record.className = 'highway-rush-menu-record';
@@ -1018,6 +1146,7 @@ export class StartScreen {
         content.appendChild(this.buildGaragePanel());
         content.appendChild(this.buildCareerPanel());
         content.appendChild(this.buildSettingsPanel());
+        content.appendChild(this.buildHowToPanel());
 
         shell.appendChild(side);
         shell.appendChild(content);
@@ -1367,6 +1496,18 @@ export class StartScreen {
         this.onSettingsChange({ ...this.settings });
     }
 
+    setNumericSetting(key, value) {
+        if (!(key in this.settings)) return;
+
+        const parsed = Number(value);
+        this.settings = {
+            ...this.settings,
+            [key]: Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0
+        };
+        this.updateSettingsDisplay();
+        this.onSettingsChange({ ...this.settings });
+    }
+
     updateSettingsDisplay() {
         for (const button of this.settingButtons ?? []) {
             const key = button.dataset.settingKey;
@@ -1380,6 +1521,16 @@ export class StartScreen {
                 stateElement.textContent = enabled ? 'ACTIF' : 'COUPÉ';
                 stateElement.style.background = enabled ? 'rgba(127, 224, 255, 0.16)' : 'rgba(255, 255, 255, 0.1)';
                 stateElement.style.color = enabled ? '#7fe0ff' : 'rgba(255, 255, 255, 0.54)';
+            }
+        }
+
+        for (const slider of this.settingSliders ?? []) {
+            const key = slider.dataset.settingRange;
+            const value = Math.max(0, Math.min(1, Number(this.settings[key]) || 0));
+            slider.value = String(value);
+            const valueElement = this.element.querySelector(`[data-role="setting-range-value-${key}"]`);
+            if (valueElement) {
+                valueElement.textContent = `${Math.round(value * 100)}%`;
             }
         }
     }
@@ -1405,8 +1556,9 @@ export class StartScreen {
 export class GameOverScreen {
     /**
      * @param {() => void} onReplay - appelé quand le joueur clique sur "REJOUER".
+     * @param {() => void} onMenu - appelé quand le joueur clique sur "MENU PRINCIPAL".
      */
-    constructor(onReplay) {
+    constructor(onReplay, onMenu = () => {}) {
         this.element = this.buildElement();
         document.body.appendChild(this.element);
 
@@ -1414,10 +1566,15 @@ export class GameOverScreen {
         this.scoreElement = this.element.querySelector('[data-role="final-score"]');
         this.bestElement = this.element.querySelector('[data-role="final-best"]');
         this.summaryElement = this.element.querySelector('[data-role="run-summary"]');
-        this.replayButton = this.element.querySelector('button');
+        this.replayButton = this.element.querySelector('[data-role="replay"]');
+        this.menuButton = this.element.querySelector('[data-role="menu"]');
         this.replayButton.addEventListener('click', () => {
             this.hide();
             onReplay();
+        });
+        this.menuButton.addEventListener('click', () => {
+            this.hide();
+            onMenu();
         });
     }
 
@@ -1431,9 +1588,12 @@ export class GameOverScreen {
             justify-content: center;
             flex-direction: column;
             gap: 20px;
-            background: rgba(0, 0, 0, 0.68);
+            padding: 18px;
+            background: rgba(0, 0, 0, 0.72);
             z-index: 10;
             font-family: system-ui, -apple-system, sans-serif;
+            color: #ffffff;
+            text-align: center;
         `;
 
         const title = document.createElement('h1');
@@ -1477,13 +1637,23 @@ export class GameOverScreen {
             width: min(88vw, 420px);
         `;
 
-        const button = document.createElement('button');
-        button.textContent = 'REJOUER';
-        button.style.cssText = `
+        const actions = document.createElement('div');
+        actions.style.cssText = `
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
             margin-top: 8px;
-            padding: 14px 40px;
+        `;
+
+        const replayButton = document.createElement('button');
+        replayButton.dataset.role = 'replay';
+        replayButton.textContent = 'REJOUER';
+        replayButton.style.cssText = `
+            min-width: 172px;
+            padding: 14px 28px;
             font-size: 1.1rem;
-            font-weight: 700;
+            font-weight: 850;
             letter-spacing: 0.06em;
             border: none;
             border-radius: 8px;
@@ -1492,11 +1662,30 @@ export class GameOverScreen {
             cursor: pointer;
         `;
 
+        const menuButton = document.createElement('button');
+        menuButton.dataset.role = 'menu';
+        menuButton.textContent = 'MENU PRINCIPAL';
+        menuButton.style.cssText = `
+            min-width: 172px;
+            padding: 14px 28px;
+            font-size: 1.1rem;
+            font-weight: 850;
+            letter-spacing: 0.06em;
+            border: 1px solid rgba(255, 255, 255, 0.26);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            color: #ffffff;
+            cursor: pointer;
+        `;
+
+        actions.appendChild(replayButton);
+        actions.appendChild(menuButton);
+
         overlay.appendChild(title);
         overlay.appendChild(scoreLine);
         overlay.appendChild(bestLine);
         overlay.appendChild(summary);
-        overlay.appendChild(button);
+        overlay.appendChild(actions);
         return overlay;
     }
 
@@ -1659,6 +1848,128 @@ export class PauseScreen {
 
     hide() {
         this.element.style.display = 'none';
+    }
+}
+
+export class TouchControlsOverlay {
+    constructor({
+        onLeft = () => {},
+        onRight = () => {},
+        onAccelerateChange = () => {},
+        onBrakeChange = () => {}
+    } = {}) {
+        this.onLeft = onLeft;
+        this.onRight = onRight;
+        this.onAccelerateChange = onAccelerateChange;
+        this.onBrakeChange = onBrakeChange;
+        this.enabled = window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window;
+        this.element = this.buildElement();
+        document.body.appendChild(this.element);
+        this.bind();
+        this.setVisible(false);
+    }
+
+    buildButton(label, role, large = false) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.touchRole = role;
+        button.textContent = label;
+        button.style.cssText = `
+            min-width: ${large ? '116px' : '64px'};
+            min-height: 58px;
+            padding: 0 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            background: rgba(5, 12, 20, 0.58);
+            color: #ffffff;
+            font: inherit;
+            font-size: ${large ? '0.8rem' : '1.35rem'};
+            font-weight: 950;
+            letter-spacing: ${large ? '0.08em' : '0'};
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+            touch-action: none;
+            user-select: none;
+        `;
+        return button;
+    }
+
+    buildElement() {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 7;
+            display: none;
+            justify-content: space-between;
+            align-items: end;
+            gap: 14px;
+            padding: 0 16px 16px;
+            pointer-events: none;
+            font-family: system-ui, -apple-system, sans-serif;
+        `;
+
+        const lanes = document.createElement('div');
+        lanes.style.cssText = `
+            display: flex;
+            gap: 10px;
+            pointer-events: auto;
+        `;
+        lanes.appendChild(this.buildButton('‹', 'left'));
+        lanes.appendChild(this.buildButton('›', 'right'));
+
+        const pedals = document.createElement('div');
+        pedals.style.cssText = `
+            display: flex;
+            gap: 10px;
+            pointer-events: auto;
+        `;
+        pedals.appendChild(this.buildButton('FREINER', 'brake', true));
+        pedals.appendChild(this.buildButton('ACCÉLÉRER', 'accelerate', true));
+
+        overlay.appendChild(lanes);
+        overlay.appendChild(pedals);
+        return overlay;
+    }
+
+    bindHold(button, callback) {
+        const setActive = (active) => {
+            button.style.background = active ? 'rgba(255, 210, 63, 0.26)' : 'rgba(5, 12, 20, 0.58)';
+            callback(active);
+        };
+        button.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            button.setPointerCapture?.(event.pointerId);
+            setActive(true);
+        });
+        for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+            button.addEventListener(eventName, () => setActive(false));
+        }
+    }
+
+    bindTap(button, callback) {
+        button.addEventListener('pointerdown', (event) => {
+            event.preventDefault();
+            button.style.background = 'rgba(255, 210, 63, 0.26)';
+            callback();
+        });
+        for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+            button.addEventListener(eventName, () => {
+                button.style.background = 'rgba(5, 12, 20, 0.58)';
+            });
+        }
+    }
+
+    bind() {
+        this.bindTap(this.element.querySelector('[data-touch-role="left"]'), this.onLeft);
+        this.bindTap(this.element.querySelector('[data-touch-role="right"]'), this.onRight);
+        this.bindHold(this.element.querySelector('[data-touch-role="accelerate"]'), this.onAccelerateChange);
+        this.bindHold(this.element.querySelector('[data-touch-role="brake"]'), this.onBrakeChange);
+    }
+
+    setVisible(visible) {
+        this.element.style.display = visible && this.enabled ? 'flex' : 'none';
     }
 }
 

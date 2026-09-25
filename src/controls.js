@@ -13,6 +13,8 @@ const KEYS_RIGHT = ['KeyD'];
 export class Controls {
     constructor() {
         this.pressedKeys = new Set();
+        this.touchAccelerating = false;
+        this.touchBraking = false;
 
         // Le changement de voie doit se déclencher UNE SEULE FOIS par appui,
         // pas en continu tant que la touche est maintenue. On mémorise donc
@@ -45,11 +47,27 @@ export class Controls {
     }
 
     isAccelerating() {
-        return KEYS_ACCELERATE.some((code) => this.pressedKeys.has(code));
+        return this.touchAccelerating || KEYS_ACCELERATE.some((code) => this.pressedKeys.has(code));
     }
 
     isBraking() {
-        return KEYS_BRAKE.some((code) => this.pressedKeys.has(code));
+        return this.touchBraking || KEYS_BRAKE.some((code) => this.pressedKeys.has(code));
+    }
+
+    setTouchAccelerating(active) {
+        this.touchAccelerating = Boolean(active);
+    }
+
+    setTouchBraking(active) {
+        this.touchBraking = Boolean(active);
+    }
+
+    shiftLeft() {
+        this.pendingLaneShift = -1;
+    }
+
+    shiftRight() {
+        this.pendingLaneShift = 1;
     }
 
     /**
@@ -64,6 +82,8 @@ export class Controls {
 
     clear() {
         this.pressedKeys.clear();
+        this.touchAccelerating = false;
+        this.touchBraking = false;
         this.pendingLaneShift = 0;
     }
 }

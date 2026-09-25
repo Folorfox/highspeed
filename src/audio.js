@@ -21,6 +21,12 @@ const SOUND_SOURCES = {
 
 const AUDIO_MUTED_STORAGE_KEY = 'highwayRush.audioMuted';
 
+const DEFAULT_AUDIO_SETTINGS = {
+    masterVolume: 0.82,
+    effectsVolume: 0.78,
+    engineVolume: 0.72
+};
+
 // Nombre d'instances <audio> par son : permet à un même son de se
 // redéclencher plusieurs fois de suite sans se couper (par exemple deux
 // Near Miss très rapprochés), sans jamais créer de nouvel élément audio
@@ -101,6 +107,9 @@ class SoundVoicePool {
 class AudioManager {
     constructor() {
         this.muted = this.loadMutedPreference();
+        this.masterVolume = DEFAULT_AUDIO_SETTINGS.masterVolume;
+        this.effectsVolume = DEFAULT_AUDIO_SETTINGS.effectsVolume;
+        this.engineVolume = DEFAULT_AUDIO_SETTINGS.engineVolume;
         this.pools = {};
         this.audioContext = null;
         this.engine = null;
@@ -109,6 +118,30 @@ class AudioManager {
         for (const [name, src] of Object.entries(SOUND_SOURCES)) {
             this.pools[name] = new SoundVoicePool(src);
         }
+    }
+
+    sanitizeVolume(value, fallback = 1) {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return fallback;
+        return Math.max(0, Math.min(1, parsed));
+    }
+
+    setVolumes(settings = {}) {
+        this.masterVolume = this.sanitizeVolume(settings.masterVolume, this.masterVolume);
+        this.effectsVolume = this.sanitizeVolume(settings.effectsVolume, this.effectsVolume);
+        this.engineVolume = this.sanitizeVolume(settings.engineVolume, this.engineVolume);
+
+        if (this.muted) {
+            this.stopEngine();
+        }
+    }
+
+    getEffectsGain() {
+        return this.masterVolume * this.effectsVolume;
+    }
+
+    getEngineGain() {
+        return this.masterVolume * this.engineVolume;
     }
 
     loadMutedPreference() {
@@ -368,7 +401,7 @@ class AudioManager {
         if (name === 'laneChange') {
             this.playNoiseBurst({
                 duration: 0.16 + speedAmount * 0.08,
-                gain: (0.018 + speedAmount * 0.025) * eventIntensity,
+                gain: (0.018 + speedAmount * 0.025) * eventIntensity * this.getEffectsGain(),
                 frequency: 720 + speedAmount * 420,
                 endFrequency: 1450 + speedAmount * 1050,
                 q: 0.75,
@@ -380,7 +413,7 @@ class AudioManager {
         if (name === 'nearMiss') {
             this.playNoiseBurst({
                 duration: 0.28 + speedAmount * 0.12,
-                gain: (0.035 + speedAmount * 0.045) * eventIntensity,
+                gain: (0.035 + speedAmount * 0.045) * eventIntensity * this.getEffectsGain(),
                 frequency: 520 + speedAmount * 360,
                 endFrequency: 2300 + speedAmount * 1400,
                 q: 0.95,
@@ -392,7 +425,7 @@ class AudioManager {
         if (name === 'overtake') {
             this.playNoiseBurst({
                 duration: 0.18,
-                gain: (0.018 + speedAmount * 0.018) * eventIntensity,
+                gain: (0.018 + speedAmount * 0.018) * eventIntensity * this.getEffectsGain(),
                 frequency: 680,
                 endFrequency: 1200 + speedAmount * 800,
                 q: 0.7,
@@ -406,13 +439,13 @@ class AudioManager {
                 duration: 0.22,
                 frequency: 120,
                 endFrequency: 42,
-                gain: 0.105 * eventIntensity,
+                gain: 0.105 * eventIntensity * this.getEffectsGain(),
                 type: 'sine',
                 pan
             });
             this.playNoiseBurst({
                 duration: 0.2,
-                gain: 0.09 * eventIntensity,
+                gain: 0.09 * eventIntensity * this.getEffectsGain(),
                 frequency: 240,
                 endFrequency: 90,
                 q: 0.85,
@@ -427,7 +460,7 @@ class AudioManager {
                 duration: 0.16,
                 frequency: 360,
                 endFrequency: 540,
-                gain: 0.024 * eventIntensity,
+                gain: 0.024 * eventIntensity * this.getEffectsGain(),
                 type: 'triangle',
                 pan
             });
@@ -452,7 +485,7 @@ class AudioManager {
         if (this.muted) return;
         const pool = this.pools[name];
         if (!pool) return;
-        pool.play(volume);
+        pool.play(volume * this.getEffectsGain());
     }
 
     startEngine() {
@@ -464,7 +497,7 @@ class AudioManager {
         if (!engine) return;
 
         engine.masterGain.gain.setTargetAtTime(
-            ENGINE_IDLE_GAIN,
+            ENGINE_IDLE_GAIN * this.getEngineGain(),
             engine.context.currentTime,
             ENGINE_PARAM_SMOOTHING
         );
@@ -508,11 +541,11 @@ class AudioManager {
             + clampedSpeedRatio * (ENGINE_FILTER_MAX - ENGINE_FILTER_BASE);
 
         let targetGain = active && !this.muted
-            ? ENGINE_IDLE_GAIN + clampedSpeedRatio * (ENGINE_MAX_GAIN - ENGINE_IDLE_GAIN)
+            ? (ENGINE_IDLE_GAIN + clampedSpeedRatio * (ENGINE_MAX_GAIN - ENGINE_IDLE_GAIN)) * this.getEngineGain()
             : 0;
 
-        if (active && accelerating) targetGain += ENGINE_ACCEL_GAIN_BOOST;
-        if (active && braking) targetGain = Math.max(0, targetGain - ENGINE_BRAKE_GAIN_REDUCTION);
+        if (active && accelerating) targetGain += ENGINE_ACCEL_GAIN_BOOST * this.getEngineGain();
+        if (active && braking) targetGain = Math.max(0, targetGain - ENGINE_BRAKE_GAIN_REDUCTION * this.getEngineGain());
 
         engine.lowOscillator.frequency.setTargetAtTime(frequency, now, ENGINE_PARAM_SMOOTHING);
         engine.highOscillator.frequency.setTargetAtTime(frequency * 1.52, now, ENGINE_PARAM_SMOOTHING);
@@ -533,7 +566,7 @@ class AudioManager {
             ENGINE_PARAM_SMOOTHING
         );
         ambience.roadGain.gain.setTargetAtTime(
-            active && !this.muted ? Math.pow(roadAmount, 1.35) * ROAD_NOISE_MAX_GAIN : 0,
+            active && !this.muted ? Math.pow(roadAmount, 1.35) * ROAD_NOISE_MAX_GAIN * this.getEngineGain() : 0,
             now,
             ENGINE_PARAM_SMOOTHING
         );
@@ -543,7 +576,7 @@ class AudioManager {
             ENGINE_PARAM_SMOOTHING
         );
         ambience.brakeGain.gain.setTargetAtTime(
-            active && !this.muted ? brakeAmount * BRAKE_NOISE_MAX_GAIN : 0,
+            active && !this.muted ? brakeAmount * BRAKE_NOISE_MAX_GAIN * this.getEngineGain() : 0,
             now,
             ENGINE_PARAM_SMOOTHING
         );
