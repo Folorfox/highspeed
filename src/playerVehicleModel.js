@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CAR_WIDTH, CAR_LENGTH } from './constants.js';
+import { assetPath } from './assetPath.js';
 
 export const PLAYER_VEHICLES = [
     {
@@ -95,8 +96,8 @@ THREE.Cache.enabled = true;
 
 const loadingManager = new THREE.LoadingManager();
 loadingManager.setURLModifier((url) => {
-    if (url.endsWith('/models/player-cars/Textures/colormap.png') || url.endsWith('Textures/colormap.png')) {
-        return '/models/cars/Textures/colormap.png';
+    if (url.endsWith('Textures/colormap.png')) {
+        return assetPath('/models/cars/Textures/colormap.png');
     }
     return url;
 });
@@ -164,7 +165,7 @@ export function loadPlayerVehicleVisual(vehicleId = DEFAULT_PLAYER_VEHICLE_ID) {
     if (!modelCache.has(vehicle.id)) {
         const preloadPromise = new Promise((resolve, reject) => {
             loader.load(
-                vehicle.path,
+                assetPath(vehicle.path),
                 (gltf) => {
                     const normalizedRoot = normalizePlayerVisual(gltf.scene, vehicle);
                     modelCache.set(vehicle.id, { normalizedRoot, preloadPromise });

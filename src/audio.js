@@ -9,12 +9,14 @@
 // le jeu. Ce module est donc sûr à appeler dès maintenant, même sans aucun
 // son en place.
 
+import { assetPath } from './assetPath.js';
+
 const SOUND_SOURCES = {
-    collision: '/audio/collision.mp3',
-    nearMiss: '/audio/near-miss.mp3',
-    overtake: '/audio/overtake.mp3',
-    combo: '/audio/combo.mp3',
-    button: '/audio/button.mp3'
+    collision: assetPath('/audio/collision.mp3'),
+    nearMiss: assetPath('/audio/near-miss.mp3'),
+    overtake: assetPath('/audio/overtake.mp3'),
+    combo: assetPath('/audio/combo.mp3'),
+    button: assetPath('/audio/button.mp3')
 };
 
 const AUDIO_MUTED_STORAGE_KEY = 'highwayRush.audioMuted';

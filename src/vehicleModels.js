@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CAR_WIDTH, CAR_LENGTH } from './constants.js';
 import { buildCarMesh, CAR_TYPES } from './carModels.js';
+import { assetPath } from './assetPath.js';
 
 // Ce module gère le chargement RÉEL des modèles .glb (GLTFLoader), leur
 // mise en cache, leur normalisation (taille/position/orientation), et leur
@@ -214,7 +215,7 @@ function normalizeModel(root, path) {
 function loadSingleModel(path) {
     return new Promise((resolve) => {
         loader.load(
-            path,
+            assetPath(path),
             (gltf) => {
                 try {
                     // Diagnostic AVANT normalisation : montre exactement ce que
