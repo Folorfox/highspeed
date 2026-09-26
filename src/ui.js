@@ -292,6 +292,7 @@ export class StartScreen {
     createMenuButton(label, panel, { primary = false, disabled = false } = {}) {
         const button = document.createElement('button');
         button.type = 'button';
+        button.className = 'highway-rush-menu-button';
         button.dataset.menuPanel = panel;
         button.disabled = disabled;
         button.textContent = label;
@@ -315,6 +316,7 @@ export class StartScreen {
     createStartButton(label = 'JOUER') {
         const button = document.createElement('button');
         button.type = 'button';
+        button.className = 'highway-rush-start-button';
         button.dataset.role = 'start';
         button.textContent = label;
         button.style.cssText = `
@@ -336,6 +338,7 @@ export class StartScreen {
 
     createVehicleList() {
         const vehicleList = document.createElement('div');
+        vehicleList.className = 'hr-vehicle-list';
         vehicleList.style.cssText = `
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
@@ -357,6 +360,7 @@ export class StartScreen {
                 : `${unlockInfo.label} · ${this.formatVehicleUnlockProgress(unlockInfo)}`;
             const option = document.createElement('button');
             option.type = 'button';
+            option.className = 'hr-vehicle-option';
             option.dataset.vehicleId = vehicle.id;
             option.disabled = !unlockInfo.unlocked;
             option.style.cssText = `
@@ -618,6 +622,7 @@ export class StartScreen {
     createModeItem(mode) {
         const item = document.createElement('button');
         item.type = 'button';
+        item.className = 'hr-mode-option';
         item.dataset.modeId = mode.id;
         const bonusLabel = this.getModeBonusLabel(mode);
         item.style.cssText = `
@@ -651,6 +656,7 @@ export class StartScreen {
 
     createSettingItem(title, value) {
         const item = document.createElement('div');
+        item.className = 'hr-setting-item';
         item.style.cssText = `
             display: flex;
             justify-content: space-between;
@@ -672,6 +678,7 @@ export class StartScreen {
     createSettingToggle(key, title, description) {
         const button = document.createElement('button');
         button.type = 'button';
+        button.className = 'hr-setting-toggle';
         button.dataset.settingKey = key;
         button.style.cssText = `
             display: grid;
@@ -700,6 +707,7 @@ export class StartScreen {
 
     createSettingRange(key, title, description) {
         const row = document.createElement('label');
+        row.className = 'hr-setting-range';
         row.style.cssText = `
             display: grid;
             gap: 9px;
@@ -726,6 +734,7 @@ export class StartScreen {
     createFullscreenButton() {
         const button = document.createElement('button');
         button.type = 'button';
+        button.className = 'hr-fullscreen-button';
         button.dataset.role = 'fullscreen';
         button.style.cssText = `
             min-height: 54px;
@@ -1042,6 +1051,7 @@ export class StartScreen {
 
     buildElement() {
         const overlay = document.createElement('div');
+        overlay.className = 'highway-rush-start-screen';
         overlay.style.cssText = `
             position: fixed;
             inset: 0;
@@ -1082,6 +1092,7 @@ export class StartScreen {
         `;
 
         const brand = document.createElement('div');
+        brand.className = 'highway-rush-menu-brand';
         brand.style.cssText = `
             display: grid;
             gap: 5px;
@@ -1259,30 +1270,118 @@ export class StartScreen {
                         linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.45) 100%);
                 }
                 @media (max-width: 760px) {
-                    body .highway-rush-menu-shell {
-                        grid-template-columns: 1fr;
-                        height: auto !important;
-                        overflow: auto !important;
+                    body .highway-rush-start-screen {
+                        align-items: stretch !important;
+                        justify-content: stretch !important;
+                        padding: max(10px, env(safe-area-inset-top)) 10px calc(104px + env(safe-area-inset-bottom)) !important;
+                        overflow-y: auto !important;
+                        -webkit-overflow-scrolling: touch;
                     }
                     body .highway-rush-menu-backdrop {
                         background:
                             linear-gradient(180deg, #172949 0%, #3c587a 34%, #b36e5c 58%, #101620 100%);
                     }
+                    body .highway-rush-menu-shell {
+                        grid-template-columns: 1fr !important;
+                        grid-template-rows: auto 1fr !important;
+                        gap: 10px !important;
+                        width: 100% !important;
+                        height: auto !important;
+                        max-height: none !important;
+                        min-height: 100% !important;
+                        overflow: visible !important;
+                    }
                     body .highway-rush-menu-side {
-                        gap: 12px;
+                        gap: 8px !important;
+                        min-height: auto !important;
+                    }
+                    body .highway-rush-menu-brand {
+                        grid-template-columns: auto 1fr;
+                        align-items: end;
+                        gap: 7px !important;
+                        width: fit-content;
+                        padding: 2px 0 4px;
+                    }
+                    body .highway-rush-menu-brand span:first-child {
+                        font-size: 0.58rem !important;
+                        letter-spacing: 0.14em !important;
+                    }
+                    body .highway-rush-menu-brand span:last-child {
+                        font-size: clamp(1.4rem, 8vw, 2rem) !important;
+                    }
+                    body .highway-rush-menu-nav {
+                        position: fixed;
+                        left: max(10px, env(safe-area-inset-left));
+                        right: max(10px, env(safe-area-inset-right));
+                        bottom: max(8px, env(safe-area-inset-bottom));
+                        z-index: 20;
+                        display: grid !important;
+                        grid-template-columns: repeat(3, minmax(0, 1fr));
+                        gap: 6px !important;
+                        padding: 8px;
+                        border-radius: 8px;
+                        border: 1px solid rgba(255, 255, 255, 0.16);
+                        background: rgba(5, 12, 20, 0.9);
+                        box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.32);
+                        backdrop-filter: blur(12px);
+                    }
+                    body .highway-rush-menu-button {
+                        min-height: 42px !important;
+                        padding: 0 6px !important;
+                        text-align: center !important;
+                        font-size: clamp(0.58rem, 2.7vw, 0.7rem) !important;
+                        letter-spacing: 0.04em !important;
+                    }
+                    body .highway-rush-menu-record {
+                        display: none !important;
+                    }
+                    body .highway-rush-menu-content {
+                        min-height: 0 !important;
+                        height: auto !important;
+                        max-height: none !important;
+                        overflow: visible !important;
+                        padding: 16px 13px 18px !important;
+                        border-radius: 8px !important;
+                        background: rgba(0, 0, 0, 0.36) !important;
+                    }
+                    body .highway-rush-start-button {
+                        width: 100%;
+                        min-height: 52px !important;
+                        padding: 0 18px !important;
+                    }
+                    body .hr-garage-layout {
+                        grid-template-columns: 1fr !important;
+                    }
+                    body .hr-vehicle-list {
+                        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                        gap: 8px !important;
+                    }
+                    body .hr-vehicle-option {
+                        min-height: 126px !important;
+                        padding: 9px 7px !important;
+                    }
+                    body .hr-mode-option,
+                    body .hr-setting-toggle,
+                    body .hr-setting-range,
+                    body .hr-setting-item,
+                    body .hr-fullscreen-button {
+                        min-height: 58px !important;
+                        padding: 11px 12px !important;
+                    }
+                    body .hr-setting-range input {
+                        min-height: 30px;
+                    }
+                }
+
+                @media (max-width: 390px) {
+                    body .highway-rush-start-screen {
+                        padding-left: 8px !important;
+                        padding-right: 8px !important;
                     }
                     body .highway-rush-menu-nav {
                         grid-template-columns: repeat(2, minmax(0, 1fr));
                     }
-                    body .highway-rush-menu-record {
-                        display: none;
-                    }
-                    body .highway-rush-menu-content {
-                        min-height: auto !important;
-                        height: auto !important;
-                        overflow: visible !important;
-                    }
-                    body .hr-garage-layout {
+                    body .hr-vehicle-list {
                         grid-template-columns: 1fr !important;
                     }
                 }
@@ -1580,6 +1679,7 @@ export class GameOverScreen {
 
     buildElement() {
         const overlay = document.createElement('div');
+        overlay.className = 'hr-game-over-screen';
         overlay.style.cssText = `
             position: fixed;
             inset: 0;
@@ -1629,6 +1729,7 @@ export class GameOverScreen {
         `;
 
         const summary = document.createElement('div');
+        summary.className = 'hr-game-over-summary';
         summary.dataset.role = 'run-summary';
         summary.style.cssText = `
             display: grid;
@@ -1638,6 +1739,7 @@ export class GameOverScreen {
         `;
 
         const actions = document.createElement('div');
+        actions.className = 'hr-game-over-actions';
         actions.style.cssText = `
             display: flex;
             flex-wrap: wrap;
@@ -1647,6 +1749,7 @@ export class GameOverScreen {
         `;
 
         const replayButton = document.createElement('button');
+        replayButton.className = 'hr-game-over-button';
         replayButton.dataset.role = 'replay';
         replayButton.textContent = 'REJOUER';
         replayButton.style.cssText = `
@@ -1663,6 +1766,7 @@ export class GameOverScreen {
         `;
 
         const menuButton = document.createElement('button');
+        menuButton.className = 'hr-game-over-button';
         menuButton.dataset.role = 'menu';
         menuButton.textContent = 'MENU PRINCIPAL';
         menuButton.style.cssText = `
@@ -1767,6 +1871,7 @@ export class PauseScreen {
 
     buildElement() {
         const overlay = document.createElement('div');
+        overlay.className = 'hr-pause-screen';
         overlay.style.cssText = `
             position: fixed;
             inset: 0;
@@ -1793,6 +1898,7 @@ export class PauseScreen {
         `;
 
         const actions = document.createElement('div');
+        actions.className = 'hr-pause-actions';
         actions.style.cssText = `
             display: flex;
             flex-wrap: wrap;
@@ -1801,6 +1907,7 @@ export class PauseScreen {
         `;
 
         const resumeButton = document.createElement('button');
+        resumeButton.className = 'hr-pause-button';
         resumeButton.dataset.role = 'resume';
         resumeButton.textContent = 'REPRENDRE';
         resumeButton.style.cssText = `
@@ -1818,6 +1925,7 @@ export class PauseScreen {
         `;
 
         const quitButton = document.createElement('button');
+        quitButton.className = 'hr-pause-button';
         quitButton.dataset.role = 'quit';
         quitButton.textContent = 'QUITTER LA PARTIE';
         quitButton.style.cssText = `
@@ -1851,18 +1959,103 @@ export class PauseScreen {
     }
 }
 
+const TOUCH_CONTROLS_STYLE_ID = 'highway-rush-touch-controls-styles';
+
+function injectTouchControlsStylesOnce() {
+    if (document.getElementById(TOUCH_CONTROLS_STYLE_ID)) return;
+
+    const style = document.createElement('style');
+    style.id = TOUCH_CONTROLS_STYLE_ID;
+    style.textContent = `
+        .hr-touch-controls {
+            padding:
+                0
+                max(10px, env(safe-area-inset-right))
+                max(12px, env(safe-area-inset-bottom))
+                max(10px, env(safe-area-inset-left)) !important;
+        }
+        .hr-touch-group {
+            display: flex;
+            pointer-events: auto;
+        }
+        .hr-touch-lanes {
+            gap: 8px;
+        }
+        .hr-touch-pedals {
+            flex-direction: column;
+            gap: 8px;
+        }
+        .hr-touch-button {
+            -webkit-tap-highlight-color: transparent;
+            backdrop-filter: blur(10px);
+        }
+        .hr-touch-lane-button {
+            min-width: 58px !important;
+            min-height: 66px !important;
+            font-size: 1.65rem !important;
+        }
+        .hr-touch-pedal-button {
+            min-width: 112px !important;
+            min-height: 66px !important;
+            font-size: 0.76rem !important;
+        }
+        .hr-touch-accelerate {
+            min-height: 76px !important;
+            background: rgba(255, 59, 59, 0.58) !important;
+            border-color: rgba(255, 255, 255, 0.32) !important;
+        }
+        .hr-touch-pause {
+            position: fixed;
+            top: max(12px, env(safe-area-inset-top));
+            right: max(12px, env(safe-area-inset-right));
+            min-width: 74px !important;
+            min-height: 42px !important;
+            padding: 0 12px !important;
+            font-size: 0.68rem !important;
+            letter-spacing: 0.08em !important;
+            pointer-events: auto;
+        }
+        @media (max-width: 380px) {
+            .hr-touch-lane-button {
+                min-width: 52px !important;
+            }
+            .hr-touch-pedal-button {
+                min-width: 98px !important;
+            }
+            .hr-touch-controls {
+                gap: 8px !important;
+            }
+        }
+        @media (orientation: landscape) and (max-height: 520px) {
+            .hr-touch-pedals {
+                flex-direction: row;
+            }
+            .hr-touch-pedal-button,
+            .hr-touch-accelerate {
+                min-height: 58px !important;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 export class TouchControlsOverlay {
     constructor({
         onLeft = () => {},
         onRight = () => {},
         onAccelerateChange = () => {},
-        onBrakeChange = () => {}
+        onBrakeChange = () => {},
+        onPause = () => {}
     } = {}) {
         this.onLeft = onLeft;
         this.onRight = onRight;
         this.onAccelerateChange = onAccelerateChange;
         this.onBrakeChange = onBrakeChange;
-        this.enabled = window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window;
+        this.onPause = onPause;
+        this.enabled = Boolean(window.matchMedia?.('(pointer: coarse)')?.matches)
+            || 'ontouchstart' in window
+            || window.innerWidth <= 760;
+        injectTouchControlsStylesOnce();
         this.element = this.buildElement();
         document.body.appendChild(this.element);
         this.bind();
@@ -1872,7 +2065,16 @@ export class TouchControlsOverlay {
     buildButton(label, role, large = false) {
         const button = document.createElement('button');
         button.type = 'button';
+        button.className = [
+            'hr-touch-button',
+            large ? 'hr-touch-pedal-button' : 'hr-touch-lane-button',
+            role === 'accelerate' ? 'hr-touch-accelerate' : '',
+            role === 'pause' ? 'hr-touch-pause' : ''
+        ].filter(Boolean).join(' ');
         button.dataset.touchRole = role;
+        button.dataset.touchInactiveBackground = role === 'accelerate'
+            ? 'rgba(255, 59, 59, 0.58)'
+            : 'rgba(5, 12, 20, 0.58)';
         button.textContent = label;
         button.style.cssText = `
             min-width: ${large ? '116px' : '64px'};
@@ -1895,6 +2097,7 @@ export class TouchControlsOverlay {
 
     buildElement() {
         const overlay = document.createElement('div');
+        overlay.className = 'hr-touch-controls';
         overlay.style.cssText = `
             position: fixed;
             left: 0;
@@ -1911,6 +2114,7 @@ export class TouchControlsOverlay {
         `;
 
         const lanes = document.createElement('div');
+        lanes.className = 'hr-touch-group hr-touch-lanes';
         lanes.style.cssText = `
             display: flex;
             gap: 10px;
@@ -1920,6 +2124,7 @@ export class TouchControlsOverlay {
         lanes.appendChild(this.buildButton('›', 'right'));
 
         const pedals = document.createElement('div');
+        pedals.className = 'hr-touch-group hr-touch-pedals';
         pedals.style.cssText = `
             display: flex;
             gap: 10px;
@@ -1928,14 +2133,21 @@ export class TouchControlsOverlay {
         pedals.appendChild(this.buildButton('FREINER', 'brake', true));
         pedals.appendChild(this.buildButton('ACCÉLÉRER', 'accelerate', true));
 
+        const pauseButton = this.buildButton('PAUSE', 'pause', true);
+
         overlay.appendChild(lanes);
         overlay.appendChild(pedals);
+        overlay.appendChild(pauseButton);
         return overlay;
     }
 
     bindHold(button, callback) {
         const setActive = (active) => {
-            button.style.background = active ? 'rgba(255, 210, 63, 0.26)' : 'rgba(5, 12, 20, 0.58)';
+            button.style.setProperty(
+                'background',
+                active ? 'rgba(255, 210, 63, 0.28)' : button.dataset.touchInactiveBackground,
+                'important'
+            );
             callback(active);
         };
         button.addEventListener('pointerdown', (event) => {
@@ -1951,12 +2163,12 @@ export class TouchControlsOverlay {
     bindTap(button, callback) {
         button.addEventListener('pointerdown', (event) => {
             event.preventDefault();
-            button.style.background = 'rgba(255, 210, 63, 0.26)';
+            button.style.setProperty('background', 'rgba(255, 210, 63, 0.28)', 'important');
             callback();
         });
         for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
             button.addEventListener(eventName, () => {
-                button.style.background = 'rgba(5, 12, 20, 0.58)';
+                button.style.setProperty('background', button.dataset.touchInactiveBackground, 'important');
             });
         }
     }
@@ -1964,12 +2176,19 @@ export class TouchControlsOverlay {
     bind() {
         this.bindTap(this.element.querySelector('[data-touch-role="left"]'), this.onLeft);
         this.bindTap(this.element.querySelector('[data-touch-role="right"]'), this.onRight);
+        this.bindTap(this.element.querySelector('[data-touch-role="pause"]'), this.onPause);
         this.bindHold(this.element.querySelector('[data-touch-role="accelerate"]'), this.onAccelerateChange);
         this.bindHold(this.element.querySelector('[data-touch-role="brake"]'), this.onBrakeChange);
     }
 
     setVisible(visible) {
-        this.element.style.display = visible && this.enabled ? 'flex' : 'none';
+        const shouldShow = visible && this.enabled;
+        this.element.style.display = shouldShow ? 'flex' : 'none';
+
+        if (!shouldShow) {
+            this.onAccelerateChange(false);
+            this.onBrakeChange(false);
+        }
     }
 }
 
@@ -2055,6 +2274,7 @@ export class AudioToggleButton {
     buildElement() {
         const button = document.createElement('button');
         button.type = 'button';
+        button.className = 'hr-audio-toggle';
         button.style.cssText = `
             position: fixed;
             right: 16px;
@@ -2585,18 +2805,130 @@ function injectHudStylesOnce() {
             100% { transform: translateY(46vmax) scaleY(1); opacity: 0; }
         }
 
-        /* --- Petits écrans : on resserre l'espacement vertical entre zones --- */
-        @media (max-width: 480px) {
-            .hr-objective-hud {
-                top: 82px;
-                width: min(72vw, 300px);
+        /* --- Téléphones : HUD plus lisible et dégagé des contrôles tactiles --- */
+        @media (max-width: 640px), (pointer: coarse) {
+            .hr-score-hud {
+                top: max(10px, env(safe-area-inset-top));
+                left: max(10px, env(safe-area-inset-left));
             }
-            .hr-mode-hud { top: 48px; }
-            .hr-combo-hud { top: 110px; }
-            .hr-notifications-hud { top: 164px; max-width: 60vw; }
-            .hr-speed-hud { bottom: 12px; left: 12px; }
-            .hr-danger-hud { bottom: 70px; }
-            .hr-notification { padding: 2px 8px; }
+            .hr-score-hud .hr-best-label,
+            .hr-score-hud .hr-best-value {
+                display: none;
+            }
+            .hr-score-hud .hr-score-label {
+                font-size: 0.58rem;
+            }
+            .hr-score-hud .hr-score-value {
+                font-size: clamp(1.25rem, 7vw, 1.65rem);
+            }
+            .hr-level-hud {
+                top: max(10px, env(safe-area-inset-top));
+                right: max(94px, calc(env(safe-area-inset-right) + 94px));
+            }
+            .hr-level-hud .hr-level-value {
+                font-size: 0.76rem;
+            }
+            .hr-mode-hud {
+                top: calc(max(10px, env(safe-area-inset-top)) + 34px);
+                right: max(10px, env(safe-area-inset-right));
+                min-width: 112px;
+            }
+            .hr-mode-box {
+                padding: 6px 8px;
+            }
+            .hr-mode-meter {
+                width: 82px;
+            }
+            .hr-combo-hud {
+                top: calc(max(10px, env(safe-area-inset-top)) + 90px);
+                right: max(10px, env(safe-area-inset-right));
+            }
+            .hr-objective-hud {
+                top: calc(max(10px, env(safe-area-inset-top)) + 54px);
+                left: max(10px, env(safe-area-inset-left));
+                width: min(58vw, 230px);
+                transform: translateY(-6px);
+            }
+            .hr-objective-hud.hr-objective-visible {
+                transform: translateY(0);
+            }
+            .hr-objective-panel {
+                padding: 7px 8px;
+            }
+            .hr-objective-description {
+                font-size: 0.72rem;
+            }
+            .hr-notifications-hud {
+                top: calc(max(10px, env(safe-area-inset-top)) + 142px);
+                right: max(10px, env(safe-area-inset-right));
+                max-width: 56vw;
+            }
+            .hr-notification {
+                padding: 2px 8px;
+                font-size: 0.8rem;
+            }
+            .hr-speed-hud {
+                left: max(10px, env(safe-area-inset-left));
+                bottom: calc(168px + env(safe-area-inset-bottom));
+            }
+            .hr-speed-hud .hr-speed-value {
+                font-size: clamp(1.45rem, 8vw, 2rem);
+            }
+            .hr-speed-score-meter {
+                width: 96px;
+            }
+            .hr-danger-hud {
+                bottom: calc(172px + env(safe-area-inset-bottom));
+            }
+            .hr-danger-indicator {
+                min-width: 126px;
+                padding: 7px 10px;
+            }
+            .hr-audio-toggle {
+                top: calc(max(10px, env(safe-area-inset-top)) + 34px) !important;
+                left: max(10px, env(safe-area-inset-left)) !important;
+                right: auto !important;
+                bottom: auto !important;
+                min-width: 74px !important;
+                min-height: 34px !important;
+                font-size: 0.62rem !important;
+            }
+            .hr-game-over-screen,
+            .hr-pause-screen {
+                padding: max(18px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom)) !important;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            .hr-game-over-summary {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                width: min(94vw, 420px) !important;
+                max-height: 42vh;
+                overflow-y: auto;
+                padding-right: 2px;
+            }
+            .hr-game-over-actions,
+            .hr-pause-actions {
+                width: min(94vw, 360px);
+                display: grid !important;
+                grid-template-columns: 1fr;
+            }
+            .hr-game-over-button,
+            .hr-pause-button {
+                width: 100%;
+                min-height: 52px !important;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .hr-objective-hud {
+                width: min(62vw, 210px);
+            }
+            .hr-notifications-hud {
+                max-width: 52vw;
+            }
+            .hr-speed-hud {
+                bottom: calc(160px + env(safe-area-inset-bottom));
+            }
         }
     `;
     document.head.appendChild(style);

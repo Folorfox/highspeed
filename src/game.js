@@ -509,7 +509,8 @@ export function startGame() {
         onLeft: () => controls.shiftLeft(),
         onRight: () => controls.shiftRight(),
         onAccelerateChange: (active) => controls.setTouchAccelerating(active),
-        onBrakeChange: (active) => controls.setTouchBraking(active)
+        onBrakeChange: (active) => controls.setTouchBraking(active),
+        onPause: () => pauseGame()
     });
 
     let isGameStarted = false;
